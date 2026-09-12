@@ -6,6 +6,10 @@
 
 set -uo pipefail
 
+# Assure la compatibilité glibc moderne pour AppImage et l'accès à cargo
+export NO_STRIP=true
+export PATH="$HOME/.cargo/bin:$PATH"
+
 # Couleurs & Formats ANSI
 BOLD="\033[1m"
 DIM="\033[2m"
@@ -62,7 +66,7 @@ draw_dashboard() {
   # Efface l'écran ou remonte pour réafficher proprement
   clear
   echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${BOLD}${CYAN}║                    OpenMDL - Compilation Multi-Plateformes          ║${RESET}"
+  echo -e "${BOLD}${CYAN}║                    OpenMDL - Compilation Multi-Plateformes           ║${RESET}"
   echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════════════════════╝${RESET}"
   echo -e "${DIM} Dossier de destination final : ${OUTPUT_DIR}/${RESET}"
   echo -e "${DIM} Logs détaillés : ${LOGS_DIR}/${RESET}\n"
