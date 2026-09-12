@@ -136,9 +136,11 @@ export interface TpeSettings {
   readerName: string;
   serialNumber: string;
   batteryLevel: number;
-  mode: 'simulator' | 'live';
   merchantName: string;
   merchantEmail: string;
+  apiKey?: string;
+  merchantCode?: string;
+  readerId?: string;
   commissionRate: number; // ex: 1.75 %
   soundEnabled: boolean;
   autoValidate: boolean;
@@ -156,3 +158,15 @@ export interface TpePaymentLog {
   transactionCode: string;
   volunteerName: string;
 }
+
+export interface PacmanScore {
+  id: string;
+  volunteerId?: string;
+  playerName: string;
+  score: number;
+  timestamp: string;
+}
+
+export type SnakeScore = PacmanScore;
+
+

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OpenMDL",
-  "version": "1.0.0",
-  "identifier": "org.openmdl.caisse",
+  "version": "1.0.1",
+  "identifier": "fr.openmdl.foyer",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",

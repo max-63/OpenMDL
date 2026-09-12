@@ -93,8 +93,8 @@ export class CloseSessionModalComponent {
           </div>
 
           <!-- Note sur l'action automatique -->
-          <div class="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed font-medium flex items-center gap-2">
-            <span class="text-base flex-shrink-0">💾</span>
+          <div class="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed font-medium flex items-center gap-2.5">
+            ${Icons.save('w-4 h-4 flex-shrink-0 text-amber-600 dark:text-amber-400')}
             <span>La clôture génère automatiquement une sauvegarde horodatée SQLite dans <code class="font-mono font-bold bg-amber-500/20 px-1.5 py-0.5 rounded-md">backups/</code> et ferme la séance.</span>
           </div>
 

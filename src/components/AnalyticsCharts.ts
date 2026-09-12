@@ -193,14 +193,14 @@ export class AnalyticsCharts {
               afterTitle: (items) => {
                 const idx = items[0].dataIndex;
                 const dp = evolution.dataPoints[idx];
-                if (dp.isRestockEvent) return `⚡ Réapprovisionnement reçu : +${dp.restockCount} unités`;
+                if (dp.isRestockEvent) return `[Réapprovisionnement] Reçu : +${dp.restockCount} unités`;
                 return '';
               },
               label: (context) => {
                 const idx = context.dataIndex;
                 const dp = evolution.dataPoints[idx];
                 if (context.datasetIndex === 0) {
-                  const alertTxt = dp.stockLevel <= dp.minStockAlert ? ' (⚠️ Seuil critique)' : ' (OK)';
+                  const alertTxt = dp.stockLevel <= dp.minStockAlert ? ' [Seuil critique]' : ' [OK]';
                   return ` Niveau de stock : ${dp.stockLevel} unités${alertTxt}`;
                 }
                 return ` Seuil minimal de sécurité : ${dp.minStockAlert} unités`;
@@ -502,7 +502,7 @@ export class AnalyticsCharts {
           },
           // 5. Couche 5 : DÉPASSEMENT DÉFICIT DANGER (DÉPASSE de la barre des ventes si consos + frais > marge !)
           {
-            label: "5. 🚨 Dépassement / Déficit (DÉPASSE DE LA BARRE) (€)",
+            label: "5. Dépassement / Déficit (DÉPASSE DE LA BARRE) (€)",
             data: overflowDeficitData,
             backgroundColor: overflowDeficitPattern as any,
             borderColor: '#e11d48',
@@ -554,7 +554,7 @@ export class AnalyticsCharts {
                 text += `• Frais bancaires SumUp (TPE 1.75%) : -${sumup.toFixed(2)} €\n`;
                 text += `• Consos bénévoles offertes : -${perksTot.toFixed(2)} €\n`;
                 if (netProfit < 0) {
-                  text += `🚨 DÉFICIT : -${Math.abs(netProfit).toFixed(2)} € (Frais + Consos > Marge !)`;
+                  text += `[DÉFICIT] : -${Math.abs(netProfit).toFixed(2)} € (Frais + Consos > Marge !)`;
                 } else {
                   text += `Bénéfice net conservé par la MDL : +${netProfit.toFixed(2)} €`;
                 }

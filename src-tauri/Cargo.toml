@@ -1,6 +1,6 @@
 [package]
 name = "openmdl"
-version = "1.0.0"
+version = "1.0.1"
 description = "OpenMDL Caisse et Foyer Lycee"
 authors = ["you"]
 license = ""

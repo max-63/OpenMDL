@@ -10,6 +10,8 @@ import { RestockView } from './pages/RestockView';
 import { StatsView } from './pages/StatsView';
 import { SettingsView } from './pages/SettingsView';
 import { TpeView } from './pages/TpeView';
+import { PlanningView } from './pages/PlanningView';
+import { SnakeModalComponent } from './components/SnakeModal';
 
 class App {
   private appRoot: HTMLElement;
@@ -49,6 +51,50 @@ class App {
         } else {
           document.exitFullscreen().catch(() => {});
         }
+      }
+    });
+
+    // Easter Egg: Haut Haut Bas Bas Droite Droite A A (Sauf Trésorier et Secrétaire)
+    const SECRET_CODE = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowRight', 'a', 'a'];
+    let inputSequence: string[] = [];
+    let sequenceTimer: any = null;
+
+    window.addEventListener('keydown', (e) => {
+      // Ignorer si l'utilisateur saisit dans un champ de texte
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return;
+      }
+
+      // Vérifier restriction : la modal ne marche QUE si un bénévole est connecté
+      const user = db.getCurrentVolunteer();
+      if (!user) {
+        return;
+      }
+      const textToCheck = `${user.role} ${user.name} ${user.username}`.toLowerCase();
+      const isExcluded = textToCheck.includes('tresor') || textToCheck.includes('trésor')
+        || textToCheck.includes('secret') || textToCheck.includes('secrét');
+      if (isExcluded) {
+        return;
+      }
+
+      const key = e.key.toLowerCase() === 'a' ? 'a' : e.key;
+      inputSequence.push(key);
+
+      if (sequenceTimer) clearTimeout(sequenceTimer);
+      sequenceTimer = setTimeout(() => {
+        inputSequence = [];
+      }, 3000);
+
+      if (inputSequence.length > SECRET_CODE.length) {
+        inputSequence.shift();
+      }
+
+      const match = inputSequence.length === SECRET_CODE.length && SECRET_CODE.every((val, idx) => inputSequence[idx] === val);
+      if (match) {
+        inputSequence = [];
+        const snakeModal = new SnakeModalComponent();
+        snakeModal.show();
       }
     });
 
@@ -123,6 +169,11 @@ class App {
       case 'stats': {
         const stats = new StatsView();
         pageContainer.appendChild(stats.render());
+        break;
+      }
+      case 'agenda': {
+        const planning = new PlanningView(() => this.render());
+        pageContainer.appendChild(planning.render());
         break;
       }
       case 'tpe': {

@@ -1,4 +1,4 @@
-import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog } from '../types';
+import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore } from '../types';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'openmdl_products',
@@ -11,7 +11,9 @@ const STORAGE_KEYS = {
   THEME: 'openmdl_theme',
   PERKS: 'openmdl_volunteer_perks',
   TPE_SETTINGS: 'openmdl_tpe_settings',
-  TPE_LOGS: 'openmdl_tpe_logs'
+  TPE_LOGS: 'openmdl_tpe_logs',
+  SNAKE_SCORES: 'openmdl_snake_scores',
+  PACMAN_SCORES: 'openmdl_pacman_scores'
 };
 
 export interface ActivityLog {
@@ -188,18 +190,53 @@ const DEMO_VOLUNTEERS: Volunteer[] = [
     isAdmin: false,
     isSuspended: false,
     createdAt: new Date().toISOString()
+  },
+  {
+    id: 'vol-4',
+    username: 'lucas',
+    password: 'password123',
+    name: 'Lucas D. (Bénévole)',
+    role: 'Permanence Foyer',
+    avatarColor: '#06b6d4',
+    isAdmin: false,
+    isSuspended: false,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'vol-5',
+    username: 'emma',
+    password: 'password123',
+    name: 'Emma R. (Secrétaire)',
+    role: 'Bureau MDL',
+    avatarColor: '#ec4899',
+    isAdmin: true,
+    isSuspended: false,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'vol-6',
+    username: 'hugo',
+    password: 'password123',
+    name: 'Hugo B. (Bénévole)',
+    role: 'Permanence Foyer',
+    avatarColor: '#f59e0b',
+    isAdmin: false,
+    isSuspended: false,
+    createdAt: new Date().toISOString()
   }
 ];
 
 const DEFAULT_TPE_SETTINGS: TpeSettings = {
-  isConnected: true,
+  isConnected: false,
   readerModel: 'SumUp Solo',
   readerName: 'SumUp Solo (Foyer MDL)',
   serialNumber: 'SOLO-MDL-8492',
-  batteryLevel: 94,
-  mode: 'simulator',
+  batteryLevel: 95,
   merchantName: 'Maison des Lycéens (MDL)',
-  merchantEmail: 'contact.mdl@lycee.fr',
+  merchantEmail: '',
+  apiKey: '',
+  merchantCode: '',
+  readerId: '',
   commissionRate: 1.75,
   soundEnabled: true,
   autoValidate: true
@@ -215,6 +252,7 @@ class DatabaseService {
   private volunteerPerks: VolunteerPerk[] = [];
   private tpeSettings: TpeSettings = DEFAULT_TPE_SETTINGS;
   private tpeLogs: TpePaymentLog[] = [];
+  private snakeScores: SnakeScore[] = [];
   private activeSession: Session | null = null;
   private currentVolunteer: Volunteer | null = null;
   private listeners: Set<() => void> = new Set();
@@ -242,6 +280,9 @@ class DatabaseService {
 
       const storedSessions = localStorage.getItem(STORAGE_KEYS.SESSIONS);
       this.sessions = storedSessions ? JSON.parse(storedSessions) : [];
+      if (this.sessions.length < 5) {
+        this.seedDemoSessions();
+      }
 
       const storedVolunteers = localStorage.getItem(STORAGE_KEYS.VOLUNTEERS);
       let parsedVolunteers: Volunteer[] = storedVolunteers ? JSON.parse(storedVolunteers) : INITIAL_VOLUNTEERS;
@@ -288,6 +329,32 @@ class DatabaseService {
 
       const storedTpeLogs = localStorage.getItem(STORAGE_KEYS.TPE_LOGS);
       this.tpeLogs = storedTpeLogs ? JSON.parse(storedTpeLogs) : [];
+
+      localStorage.removeItem(STORAGE_KEYS.SNAKE_SCORES);
+      const storedPacman = localStorage.getItem(STORAGE_KEYS.PACMAN_SCORES);
+      if (storedPacman) {
+        try {
+          const parsed = JSON.parse(storedPacman);
+          // Éliminer tous les faux scores de démonstration inventés
+          const fakeNames = ['jérémy', 'jeremy', 'thomas m.', 'thomas'];
+          this.snakeScores = Array.isArray(parsed)
+            ? parsed.filter((s: any) => 
+                s && typeof s === 'object' && 
+                s.playerName &&
+                !fakeNames.includes(String(s.playerName).toLowerCase().trim()) &&
+                !['s1', 's2', 's3'].includes(s.id) &&
+                !(s.score === 140 && String(s.playerName).includes('Jér')) &&
+                !(s.score === 90 && String(s.playerName).includes('Thom')) &&
+                !(s.score === 80 && String(s.playerName).includes('Adri'))
+              )
+            : [];
+        } catch {
+          this.snakeScores = [];
+        }
+      } else {
+        this.snakeScores = [];
+      }
+      this.saveSnakeScores();
 
       const storedActive = localStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION);
       if (storedActive) {
@@ -539,6 +606,42 @@ class DatabaseService {
     return { success: true, message: `Mot de passe mis à jour pour @${user.username}` };
   }
 
+  public updateUserName(volunteerId: string, newName: string): { success: boolean; message: string } {
+    const user = this.volunteers.find(v => v.id === volunteerId);
+    if (!user) return { success: false, message: 'Utilisateur introuvable' };
+
+    const cleanName = newName.trim();
+    if (cleanName.length < 2) {
+      return { success: false, message: 'Le nom doit contenir au moins 2 caractères' };
+    }
+
+    const oldName = user.name;
+    user.name = cleanName;
+    this.saveVolunteers();
+
+    // Mettre à jour immédiatement tous les scores Pacman existants associés
+    let updatedCount = 0;
+    this.snakeScores.forEach(s => {
+      if (s.volunteerId === user.id || s.playerName === oldName) {
+        s.volunteerId = user.id;
+        s.playerName = cleanName;
+        updatedCount++;
+      }
+    });
+    if (updatedCount > 0) {
+      this.saveSnakeScores();
+    }
+
+    if (this.currentVolunteer?.id === user.id) {
+      this.currentVolunteer.name = cleanName;
+    }
+
+    this.logActivity('INFO', `Blaze/nom de @${user.username} modifié en "${cleanName}"`);
+    this.notify();
+
+    return { success: true, message: `Nom / blaze mis à jour en "${cleanName}"` };
+  }
+
   // --- Gestion du TPE SumUp ---
   public getTpeSettings(): TpeSettings {
     return { ...this.tpeSettings };
@@ -550,24 +653,37 @@ class DatabaseService {
     this.notify();
   }
 
-  public connectTpe(account: { merchantName: string; merchantEmail: string; readerModel?: 'SumUp Solo' | 'SumUp Air' }): void {
+  public connectTpe(account: {
+    merchantName?: string;
+    merchantEmail?: string;
+    merchantCode?: string;
+    apiKey?: string;
+    serialNumber?: string;
+    readerId?: string;
+    readerModel?: 'SumUp Solo' | 'SumUp Air';
+  }): void {
     this.tpeSettings = {
       ...this.tpeSettings,
       isConnected: true,
-      merchantName: account.merchantName || 'Maison des Lycéens',
-      merchantEmail: account.merchantEmail || 'contact.mdl@lycee.fr',
+      merchantName: account.merchantName || this.tpeSettings.merchantName || 'Maison des Lycéens',
+      merchantEmail: account.merchantEmail || this.tpeSettings.merchantEmail || '',
+      merchantCode: account.merchantCode || this.tpeSettings.merchantCode || '',
+      apiKey: account.apiKey ?? this.tpeSettings.apiKey ?? '',
+      readerId: account.readerId ?? this.tpeSettings.readerId ?? '',
+      serialNumber: account.serialNumber || this.tpeSettings.serialNumber || `SOLO-MDL-${Math.floor(1000 + Math.random() * 9000)}`,
       readerModel: account.readerModel || 'SumUp Solo',
       readerName: `${account.readerModel || 'SumUp Solo'} (${account.merchantName || 'Foyer MDL'})`,
-      serialNumber: `SOLO-MDL-${Math.floor(1000 + Math.random() * 9000)}`,
-      batteryLevel: 96
+      batteryLevel: 98
     };
     this.saveTpeSettings();
-    this.logActivity('INFO', `Terminal ${this.tpeSettings.readerModel} connecté au compte ${this.tpeSettings.merchantName}`);
+    this.logActivity('INFO', `Terminal ${this.tpeSettings.readerModel} configuré (${this.tpeSettings.merchantName})`);
     this.notify();
   }
 
   public disconnectTpe(): void {
     this.tpeSettings.isConnected = false;
+    this.tpeSettings.apiKey = '';
+    this.tpeSettings.merchantCode = '';
     this.saveTpeSettings();
     this.logActivity('WARNING', `Terminal ${this.tpeSettings.readerName} déconnecté`);
     this.notify();
@@ -600,6 +716,69 @@ class DatabaseService {
 
   public getTpeLogs(): TpePaymentLog[] {
     return [...this.tpeLogs];
+  }
+
+  public getPacmanScores(): PacmanScore[] {
+    const fakeNames = ['jérémy', 'jeremy', 'thomas m.', 'thomas'];
+    return this.snakeScores
+      .filter(s => 
+        s && typeof s === 'object' && 
+        s.playerName &&
+        !fakeNames.includes(String(s.playerName).toLowerCase().trim()) &&
+        !['s1', 's2', 's3'].includes(s.id) &&
+        !(s.score === 140 && String(s.playerName).includes('Jér')) &&
+        !(s.score === 90 && String(s.playerName).includes('Thom')) &&
+        !(s.score === 80 && String(s.playerName).includes('Adri'))
+      )
+      .map(s => {
+        if (s.volunteerId) {
+          const vol = this.volunteers.find(v => v.id === s.volunteerId);
+          if (vol && vol.name) {
+            return { ...s, playerName: vol.name };
+          }
+        }
+        return s;
+      })
+      .sort((a, b) => b.score - a.score);
+  }
+
+  public addPacmanScore(playerName: string, score: number, volunteerId?: string): PacmanScore {
+    const volId = volunteerId || this.currentVolunteer?.id;
+    const vol = volId ? this.volunteers.find(v => v.id === volId) : null;
+    const resolvedName = vol ? vol.name : (playerName.trim() || 'Anonyme');
+
+    const entry: PacmanScore = {
+      id: 'score-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      volunteerId: volId,
+      playerName: resolvedName,
+      score,
+      timestamp: new Date().toISOString()
+    };
+    this.snakeScores.push(entry);
+    this.snakeScores.sort((a, b) => b.score - a.score);
+    if (this.snakeScores.length > 50) this.snakeScores.pop();
+    this.saveSnakeScores();
+    this.notify();
+    return entry;
+  }
+
+  public getSnakeScores(): SnakeScore[] {
+    return this.getPacmanScores();
+  }
+
+  public addSnakeScore(playerName: string, score: number): SnakeScore {
+    return this.addPacmanScore(playerName, score);
+  }
+
+  public clearPacmanScores(): void {
+    this.snakeScores = [];
+    this.saveSnakeScores();
+    this.notify();
+  }
+
+  private saveSnakeScores(): void {
+    localStorage.setItem(STORAGE_KEYS.SNAKE_SCORES, JSON.stringify(this.snakeScores));
+    localStorage.setItem(STORAGE_KEYS.PACMAN_SCORES, JSON.stringify(this.snakeScores));
   }
 
   public logout(): void {
@@ -818,6 +997,196 @@ class DatabaseService {
 
   public getSessions(): Session[] {
     return [...this.sessions];
+  }
+
+  public seedDemoSessions(): void {
+    const now = new Date();
+    const newSessions: Session[] = [];
+
+    // Déterminer le lundi de la semaine courante
+    const currDay = now.getDay();
+    const diffToMonday = now.getDate() - currDay + (currDay === 0 ? -6 : 1);
+    const currMonday = new Date(now.getFullYear(), now.getMonth(), diffToMonday);
+
+    const volunteersPool = [
+      { id: 'vol-admin', name: 'Adrien (Responsable MDL)', color: '#ea580c' },
+      { id: 'vol-2', name: 'Sarah L. (Trésorière)', color: '#8b5cf6' },
+      { id: 'vol-3', name: 'Thomas M. (Bénévole)', color: '#10b981' },
+      { id: 'vol-4', name: 'Lucas D. (Bénévole)', color: '#06b6d4' },
+      { id: 'vol-5', name: 'Emma R. (Secrétaire)', color: '#ec4899' },
+      { id: 'vol-6', name: 'Hugo B. (Bénévole)', color: '#f59e0b' }
+    ];
+
+    const notesPool = [
+      'Affluence très soutenue à la pause. Caisse parfaitement équilibrée.',
+      'Beaucoup de cafés et chocolats chauds distribués. R.A.S.',
+      'Séance calme et ordonnée. Stock de canettes fraîches réapprovisionné.',
+      'Forte demande sur les confiseries. Monnaie et caisse vérifiées.',
+      'Permanence impeccable, tables essuyées et local fermé à clé.',
+      'Excellente ambiance, beaucoup d\'adhérents au comptoir.'
+    ];
+
+    // Créneaux types du lycée :
+    // 1. Pause matin: 09:55 -> 10:20 (25 min)
+    // 2. Pause méridienne: 11:45 -> 13:45 (2h00)
+    // 3. Pause après-midi: 15:45 -> 16:15 (30 min)
+    // 4. Fin de journée: 17:05 -> 18:05 (1h00)
+
+    for (let w = 3; w >= 0; w--) {
+      const weekMonday = new Date(currMonday);
+      weekMonday.setDate(currMonday.getDate() - (w * 7));
+
+      for (let dayIdx = 0; dayIdx < 5; dayIdx++) {
+        const sessionDate = new Date(weekMonday);
+        sessionDate.setDate(weekMonday.getDate() + dayIdx);
+
+        if (sessionDate > now && sessionDate.toDateString() !== now.toDateString()) {
+          continue;
+        }
+
+        const isWednesday = dayIdx === 2;
+
+        // Créneau Matin (9h55 - 10h20)
+        {
+          const vol = volunteersPool[(w * 5 + dayIdx * 2) % volunteersPool.length];
+          const start = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 9, 55);
+          const end = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 10, 20);
+          const sales = 12 + ((dayIdx * 3 + w) % 9);
+          const totalSales = Math.round((15 + (dayIdx * 2.5) + (w * 1.5)) * 100) / 100;
+          const cash = Math.round(totalSales * 0.65 * 100) / 100;
+          const tpe = Math.round((totalSales - cash) * 100) / 100;
+
+          if (start < now) {
+            newSessions.push({
+              id: `demo-sess-w${w}-d${dayIdx}-morning`,
+              startTime: start.toISOString(),
+              endTime: end.toISOString(),
+              volunteerId: vol.id,
+              volunteerName: vol.name,
+              totalSales,
+              totalCash: cash,
+              totalTpe: tpe,
+              salesCount: sales,
+              incidentNotes: notesPool[(dayIdx + w) % notesPool.length],
+              status: 'closed'
+            });
+          }
+        }
+
+        // Créneau Midi (11h45 - 13h45)
+        {
+          const vol = volunteersPool[(w * 5 + dayIdx * 2 + 1) % volunteersPool.length];
+          const start = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 11, 45);
+          const end = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 13, 45);
+          const sales = 38 + ((dayIdx * 7 + w * 4) % 25);
+          const totalSales = Math.round((52 + (dayIdx * 6.5) + (w * 3.5)) * 100) / 100;
+          const cash = Math.round(totalSales * 0.55 * 100) / 100;
+          const tpe = Math.round((totalSales - cash) * 100) / 100;
+
+          if (start < now) {
+            newSessions.push({
+              id: `demo-sess-w${w}-d${dayIdx}-lunch`,
+              startTime: start.toISOString(),
+              endTime: end.toISOString(),
+              volunteerId: vol.id,
+              volunteerName: vol.name,
+              totalSales,
+              totalCash: cash,
+              totalTpe: tpe,
+              salesCount: sales,
+              incidentNotes: notesPool[(dayIdx + w + 1) % notesPool.length],
+              status: 'closed'
+            });
+          }
+        }
+
+        // Créneau Après-midi (15h45 - 16h15) (sauf mercredi)
+        if (!isWednesday) {
+          const vol = volunteersPool[(w * 5 + dayIdx * 2 + 2) % volunteersPool.length];
+          const start = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 15, 45);
+          const end = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 16, 15);
+          const sales = 15 + ((dayIdx * 4 + w * 2) % 12);
+          const totalSales = Math.round((21 + (dayIdx * 3.2) + (w * 2)) * 100) / 100;
+          const cash = Math.round(totalSales * 0.5 * 100) / 100;
+          const tpe = Math.round((totalSales - cash) * 100) / 100;
+
+          if (start < now) {
+            newSessions.push({
+              id: `demo-sess-w${w}-d${dayIdx}-afternoon`,
+              startTime: start.toISOString(),
+              endTime: end.toISOString(),
+              volunteerId: vol.id,
+              volunteerName: vol.name,
+              totalSales,
+              totalCash: cash,
+              totalTpe: tpe,
+              salesCount: sales,
+              incidentNotes: notesPool[(dayIdx + w + 2) % notesPool.length],
+              status: 'closed'
+            });
+          }
+        }
+
+        // Créneau Fin de journée (17h05 - 18h05) (Lundi, Mardi, Jeudi)
+        if (dayIdx === 0 || dayIdx === 1 || dayIdx === 3) {
+          const vol = volunteersPool[(w * 5 + dayIdx + 3) % volunteersPool.length];
+          const start = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 17, 5);
+          const end = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 18, 5);
+          const sales = 10 + ((dayIdx * 2 + w) % 8);
+          const totalSales = Math.round((14.50 + (dayIdx * 2.1) + w) * 100) / 100;
+          const cash = Math.round(totalSales * 0.6 * 100) / 100;
+          const tpe = Math.round((totalSales - cash) * 100) / 100;
+
+          if (start < now) {
+            newSessions.push({
+              id: `demo-sess-w${w}-d${dayIdx}-evening`,
+              startTime: start.toISOString(),
+              endTime: end.toISOString(),
+              volunteerId: vol.id,
+              volunteerName: vol.name,
+              totalSales,
+              totalCash: cash,
+              totalTpe: tpe,
+              salesCount: sales,
+              incidentNotes: notesPool[(dayIdx + w + 3) % notesPool.length],
+              status: 'closed'
+            });
+          }
+        }
+      }
+
+      // Samedi matin (Réunion bureau / permanence spéciale)
+      {
+        const saturdayDate = new Date(weekMonday);
+        saturdayDate.setDate(weekMonday.getDate() + 5);
+        if (saturdayDate <= now) {
+          const start = new Date(saturdayDate.getFullYear(), saturdayDate.getMonth(), saturdayDate.getDate(), 10, 0);
+          const end = new Date(saturdayDate.getFullYear(), saturdayDate.getMonth(), saturdayDate.getDate(), 12, 15);
+          newSessions.push({
+            id: `demo-sess-w${w}-sat`,
+            startTime: start.toISOString(),
+            endTime: end.toISOString(),
+            volunteerId: 'vol-admin',
+            volunteerName: 'Adrien (Responsable MDL)',
+            totalSales: 28.50,
+            totalCash: 16.00,
+            totalTpe: 12.50,
+            salesCount: 19,
+            incidentNotes: 'Permanence d\'accueil et réunion de rentrée du bureau MDL.',
+            status: 'closed'
+          });
+        }
+      }
+    }
+
+    if (this.activeSession) {
+      newSessions.unshift({ ...this.activeSession });
+    }
+
+    newSessions.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    this.sessions = newSessions;
+    this.saveSessions();
+    this.notify();
   }
 
   public getLogs(): ActivityLog[] {

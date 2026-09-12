@@ -4,6 +4,7 @@ import { Icons } from '../components/Icons';
 export class SettingsView {
   private feedbackMessage: { text: string; type: 'success' | 'error' } | null = null;
   private editingPasswordUserId: string | null = null;
+  private editingNameUserId: string | null = null;
 
   public render(): HTMLElement {
     const container = document.createElement('div');
@@ -240,6 +241,7 @@ export class SettingsView {
                 const isCurrent = v.id === currentVolunteer?.id;
                 const isSuspended = !!v.isSuspended;
                 const isEditingPassword = this.editingPasswordUserId === v.id;
+                const isEditingName = this.editingNameUserId === v.id;
 
                 return `
                   <div class="p-4 rounded-2xl border ${
@@ -309,15 +311,28 @@ export class SettingsView {
                     <!-- Barre d'actions -->
                     <div class="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
                       
-                      <!-- Bouton modifier le mot de passe -->
-                      <button 
-                        type="button" 
-                        data-toggle-pwd-edit="${v.id}"
-                        class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        ${Icons.key('w-3.5 h-3.5 text-slate-500')}
-                        <span>${isEditingPassword ? 'Annuler modification' : 'Modifier mot de passe'}</span>
-                      </button>
+                      <div class="flex items-center gap-2">
+                        <!-- Bouton modifier le blaze / nom -->
+                        <button 
+                          type="button" 
+                          data-toggle-name-edit="${v.id}"
+                          class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                          title="Modifier le nom affiché (blaze) pour la caisse et le classement Pac-Man"
+                        >
+                          ${Icons.userCheck('w-3.5 h-3.5 text-slate-500')}
+                          <span>${isEditingName ? 'Annuler' : 'Modifier blaze'}</span>
+                        </button>
+
+                        <!-- Bouton modifier le mot de passe -->
+                        <button 
+                          type="button" 
+                          data-toggle-pwd-edit="${v.id}"
+                          class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          ${Icons.key('w-3.5 h-3.5 text-slate-500')}
+                          <span>${isEditingPassword ? 'Annuler' : 'Modifier mot de passe'}</span>
+                        </button>
+                      </div>
 
                       <div class="flex items-center gap-2">
                         
@@ -369,6 +384,26 @@ export class SettingsView {
                           class="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-xs cursor-pointer"
                         >
                           Enregistrer
+                        </button>
+                      </form>
+                    ` : ''}
+
+                    <!-- Sous-formulaire de modification de blaze/nom si actif -->
+                    ${isEditingName ? `
+                      <form data-form-edit-name="${v.id}" class="mt-2 p-3 rounded-xl bg-orange-500/10 dark:bg-orange-950/30 border border-orange-500/30 flex items-center gap-2 animate-enter">
+                        <input 
+                          type="text" 
+                          value="${v.name}" 
+                          placeholder="Nouveau nom / blaze pour la caisse et le classement" 
+                          required
+                          data-input-new-name="${v.id}"
+                          class="flex-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-orange-500"
+                        />
+                        <button 
+                          type="submit" 
+                          class="px-3.5 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-xs cursor-pointer flex-shrink-0"
+                        >
+                          Enregistrer le blaze
                         </button>
                       </form>
                     ` : ''}
@@ -485,6 +520,35 @@ export class SettingsView {
           type: res.success ? 'success' : 'error'
         };
         this.editingPasswordUserId = null;
+        this.refresh(container);
+      });
+    });
+
+    // Toggle édition du nom/blaze
+    container.querySelectorAll('[data-toggle-name-edit]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = (e.currentTarget as HTMLElement).getAttribute('data-toggle-name-edit');
+        if (!id) return;
+        this.editingNameUserId = this.editingNameUserId === id ? null : id;
+        this.refresh(container);
+      });
+    });
+
+    // Formulaire d'édition du nom/blaze
+    container.querySelectorAll('[data-form-edit-name]').forEach(form => {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const id = (e.currentTarget as HTMLElement).getAttribute('data-form-edit-name');
+        if (!id) return;
+        const input = container.querySelector(`[data-input-new-name="${id}"]`) as HTMLInputElement;
+        if (!input) return;
+
+        const res = db.updateUserName(id, input.value);
+        this.feedbackMessage = {
+          text: res.message,
+          type: res.success ? 'success' : 'error'
+        };
+        this.editingNameUserId = null;
         this.refresh(container);
       });
     });

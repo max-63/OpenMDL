@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>PAC-MAN</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #070b13;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #pacman-wrapper {
+      position: relative;
+      width: 554px;
+      height: 186px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.9);
+      box-sizing: content-box;
+    }
+    #logo {
+      width: 554px;
+      height: 186px;
+      background: black url(pacman10-hp.png) 0 0 no-repeat;
+      position: relative;
+      box-sizing: content-box;
+    }
+    #logo-l {
+      width: 200px;
+      height: 2px;
+      left: 177px;
+      top: 157px;
+      background: #990;
+      position: absolute;
+      display: none;
+      overflow: hidden;
+      box-sizing: content-box;
+    }
+    #logo-b {
+      position: absolute;
+      left: 0;
+      background: #ff0;
+      height: 8px;
+      width: 0;
+      box-sizing: content-box;
+    }
+    #pcm-c, #pcm-c * {
+      box-sizing: content-box !important;
+    }
+  </style>
+
+  <script>
+    window.google = {
+      time: function () {
+        return (new Date).getTime();
+      },
+      Toolbelt: {},
+      y: {},
+      dstr: [],
+      rein: [],
+      pacManSound: true
+    };
+  </script>
+</head>
+<body>
+  <div id="pacman-wrapper">
+    <div id="logo">
+      <div id="logo-l">
+        <div id="logo-b"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="google-script.js"></script>
+  <script>
+    google.neegg = 1;
+
+    google.pml = function () {
+      function d(a) {
+        if (!google.pml_installed) {
+          google.pml_installed = true;
+          if (!a) {
+            document.getElementById("logo").style.background = "black";
+            window.setTimeout(function () {
+              var b = document.getElementById("logo-l");
+              if (b) b.style.display = "block";
+            }, 400);
+          }
+          var audio = document.createElement("script");
+          audio.type = "text/javascript";
+          audio.src = "pacman-audio.js";
+          audio.onload = function () {
+            var s = document.createElement("script");
+            s.type = "text/javascript";
+            s.src = "pacman.js";
+            google.dom.append(s);
+          };
+          google.dom.append(audio);
+        }
+      }
+
+      if (!google.pml_loaded) {
+        google.pml_loaded = true;
+        // Démarrage automatique
+        window.setTimeout(function () {
+          d(false);
+        }, 100);
+
+        google.pacManQuery = function () {
+          return false;
+        };
+      }
+    };
+
+    google.pml && google.pml();
+
+    // Communication avec la fenêtre parente
+    window.addEventListener('message', function (e) {
+      if (!e.data) return;
+      if (e.data.type === 'RESTART_PACMAN') {
+        if (typeof google.pacman !== 'undefined' && google.pacman.newGame) {
+          google.pacman.newGame();
+        } else if (typeof google.pacman !== 'undefined' && google.pacman.insertCoin) {
+          google.pacman.insertCoin();
+        }
+      }
+    });
+  </script>
+</body>
+</html>
