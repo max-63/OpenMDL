@@ -130,3 +130,29 @@ export interface ProductStockEvolution {
   };
 }
 
+export interface TpeSettings {
+  isConnected: boolean;
+  readerModel: 'SumUp Solo' | 'SumUp Air' | 'Manuel';
+  readerName: string;
+  serialNumber: string;
+  batteryLevel: number;
+  mode: 'simulator' | 'live';
+  merchantName: string;
+  merchantEmail: string;
+  commissionRate: number; // ex: 1.75 %
+  soundEnabled: boolean;
+  autoValidate: boolean;
+}
+
+export interface TpePaymentLog {
+  id: string;
+  timestamp: string;
+  amount: number;
+  currency: string;
+  status: 'SUCCESS' | 'FAILED' | 'PENDING';
+  readerName: string;
+  cardBrand?: string;
+  last4?: string;
+  transactionCode: string;
+  volunteerName: string;
+}

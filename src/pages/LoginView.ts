@@ -21,12 +21,25 @@ export class LoginView {
     const latestBackup = backups.length > 0 ? backups[0] : null;
 
     container.innerHTML = `
+      <!-- Contrôles Fenêtre Flottants (sans bandeau d'OS) -->
+      <div class="fixed top-3 right-3 z-50 flex items-center gap-1 p-1 rounded-xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-sm" id="login-win-controls" data-tauri-drag-region>
+        <button id="btn-login-win-min" class="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-all" title="Réduire">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="btn-login-win-max" class="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-all" title="Agrandir / Restaurer">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+        </button>
+        <button id="btn-login-win-close" class="w-7 h-7 rounded-lg text-slate-400 hover:text-white hover:bg-rose-600 flex items-center justify-center transition-all" title="Fermer">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
       <div class="w-full max-w-md space-y-6 animate-enter">
         
         <!-- En-tête : Marque & Rôle CVL -->
-        <div class="space-y-2 text-center flex flex-col items-center">
-          <div class="w-14 h-14 rounded-3xl bg-orange-600 text-white flex items-center justify-center font-black text-2xl shadow-lg shadow-orange-600/25 hover:scale-105 transition-transform cursor-default">
-            M
+        <div class="space-y-3 text-center flex flex-col items-center">
+          <div class="w-32 h-20 rounded-3xl bg-white dark:bg-slate-800 p-2 border border-slate-200 dark:border-slate-700/80 shadow-md flex items-center justify-center overflow-hidden hover:scale-105 transition-transform">
+            <img src="/assets/logo_banniere.png" alt="OpenMDL Logo" class="w-full h-full object-contain rounded-2xl" />
           </div>
           <div>
             <h1 class="text-2xl font-black tracking-tight text-slate-900 dark:text-white">OpenMDL</h1>
@@ -246,6 +259,41 @@ export class LoginView {
         errorContainer.classList.remove('hidden');
         passwordInput.focus();
         passwordInput.select();
+      }
+    });
+
+    // Gestionnaires des contrôles de fenêtre Tauri sur l'écran de login
+    container.querySelector('#btn-login-win-min')?.addEventListener('click', async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().minimize();
+      } catch {}
+    });
+
+    container.querySelector('#btn-login-win-max')?.addEventListener('click', async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().toggleMaximize();
+      } catch {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+    });
+
+    container.querySelector('#btn-login-win-close')?.addEventListener('click', async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('exit_app');
+      } catch {
+        try {
+          const { getCurrentWindow } = await import('@tauri-apps/api/window');
+          await getCurrentWindow().destroy();
+        } catch {
+          window.close();
+        }
       }
     });
 

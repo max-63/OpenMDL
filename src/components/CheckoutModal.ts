@@ -136,13 +136,47 @@ export class CheckoutModalComponent {
             </div>
           ` : `
             <!-- Écran TPE -->
-            <div class="p-6 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-center space-y-3">
-              <div class="w-12 h-12 rounded-2xl bg-indigo-500 text-white flex items-center justify-center mx-auto shadow-sm shadow-indigo-500/30">
-                ${Icons.creditCard('w-6 h-6')}
-              </div>
-              <p class="text-xs font-bold text-slate-700 dark:text-slate-200">Insérer ou badger la carte sur le TPE</p>
-              <div class="font-mono-nums font-black text-2xl text-indigo-600 dark:text-indigo-400">${this.totalAmount.toFixed(2)} €</div>
-            </div>
+            ${(() => {
+              const tpe = db.getTpeSettings();
+              return `
+                <div class="p-5 rounded-3xl bg-indigo-500/10 border border-indigo-500/30 text-center space-y-3">
+                  <div class="flex items-center justify-between px-2 pb-2 border-b border-indigo-500/20 text-[11px] font-bold">
+                    <span class="flex items-center gap-1.5 ${tpe.isConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}">
+                      <span class="w-2 h-2 rounded-full ${tpe.isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}"></span>
+                      <span>${tpe.isConnected ? (tpe.readerName || 'SumUp Solo') : 'TPE Déconnecté'}</span>
+                    </span>
+                    <span class="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-mono-nums">
+                      <span class="flex items-center gap-1">${Icons.wifi('w-3 h-3')} Wi-Fi/4G</span>
+                      <span class="flex items-center gap-1">${Icons.battery('w-3 h-3')} ${tpe.batteryLevel}%</span>
+                    </span>
+                  </div>
+
+                  <div class="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center mx-auto shadow-sm shadow-indigo-600/30">
+                    ${Icons.creditCard('w-6 h-6')}
+                  </div>
+                  
+                  <div>
+                    <p class="text-xs font-black text-slate-800 dark:text-slate-100">Présenter ou insérer la carte bancaire</p>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Montant transmis automatiquement au terminal</p>
+                  </div>
+
+                  <div class="font-mono-nums font-black text-3xl text-indigo-600 dark:text-indigo-400">
+                    ${this.totalAmount.toFixed(2)} €
+                  </div>
+
+                  <div class="pt-1">
+                    <button 
+                      id="btn-simulate-tap" 
+                      type="button" 
+                      class="w-full py-2.5 px-3 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-[0.98]"
+                    >
+                      ${Icons.zap('w-3.5 h-3.5')}
+                      <span>Badger la carte (Validation sans-contact)</span>
+                    </button>
+                  </div>
+                </div>
+              `;
+            })()}
           `}
 
           <!-- Bouton de confirmation -->
@@ -208,6 +242,10 @@ export class CheckoutModalComponent {
     this.container.querySelector('#btn-confirm-payment')?.addEventListener('click', () => {
       this.confirmSale();
     });
+
+    this.container.querySelector('#btn-simulate-tap')?.addEventListener('click', () => {
+      this.confirmSale();
+    });
   }
 
   private confirmSale(): void {
@@ -218,6 +256,34 @@ export class CheckoutModalComponent {
       quantity: item.quantity,
       totalPrice: item.product.price * item.quantity
     }));
+
+    // Si paiement par TPE, enregistrer la transaction dans le journal TPE
+    if (this.selectedMethod === 'tpe') {
+      const tpeSettings = db.getTpeSettings();
+      db.recordTpePayment({
+        amount: this.totalAmount,
+        cardBrand: 'Sans-Contact / CB',
+        status: 'SUCCESS'
+      });
+
+      // Bip sonore TPE
+      if (tpeSettings.soundEnabled) {
+        try {
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.15);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.2);
+        } catch {}
+      }
+    }
 
     db.recordSale({
       items: saleItems,

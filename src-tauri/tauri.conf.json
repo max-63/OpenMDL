@@ -12,13 +12,15 @@
   "app": {
     "windows": [
       {
-        "title": "OpenMDL - Caisse & Foyer Lycée",
+        "title": "OpenMDL",
         "width": 1280,
         "height": 820,
         "minWidth": 960,
         "minHeight": 640,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "maximized": true,
+        "decorations": false
       }
     ],
     "security": {
@@ -28,10 +30,15 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "Finance",
+    "shortDescription": "Caisse & foyer pour Maison des Lycéens (MDL)",
+    "longDescription": "OpenMDL est une application moderne et intuitive pour la gestion de caisse, stocks, terminaux TPE SumUp et comptabilité des foyers de lycéens.",
+    "copyright": "Copyright © 2026 OpenMDL",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/icon.png",
       "icons/icon.icns",
       "icons/icon.ico"
     ],

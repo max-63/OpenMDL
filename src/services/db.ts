@@ -1,4 +1,4 @@
-import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution } from '../types';
+import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog } from '../types';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'openmdl_products',
@@ -9,7 +9,9 @@ const STORAGE_KEYS = {
   RESTOCKS: 'openmdl_restocks',
   LOGS: 'openmdl_activity_logs',
   THEME: 'openmdl_theme',
-  PERKS: 'openmdl_volunteer_perks'
+  PERKS: 'openmdl_volunteer_perks',
+  TPE_SETTINGS: 'openmdl_tpe_settings',
+  TPE_LOGS: 'openmdl_tpe_logs'
 };
 
 export interface ActivityLog {
@@ -159,6 +161,20 @@ const INITIAL_VOLUNTEERS: Volunteer[] = [
   }
 ];
 
+const DEFAULT_TPE_SETTINGS: TpeSettings = {
+  isConnected: true,
+  readerModel: 'SumUp Solo',
+  readerName: 'SumUp Solo (Foyer MDL)',
+  serialNumber: 'SOLO-MDL-8492',
+  batteryLevel: 94,
+  mode: 'simulator',
+  merchantName: 'Maison des Lycéens (MDL)',
+  merchantEmail: 'contact.mdl@lycee.fr',
+  commissionRate: 1.75,
+  soundEnabled: true,
+  autoValidate: true
+};
+
 class DatabaseService {
   private products: Product[] = [];
   private sales: Sale[] = [];
@@ -167,6 +183,8 @@ class DatabaseService {
   private restocks: RestockLog[] = [];
   private logs: ActivityLog[] = [];
   private volunteerPerks: VolunteerPerk[] = [];
+  private tpeSettings: TpeSettings = DEFAULT_TPE_SETTINGS;
+  private tpeLogs: TpePaymentLog[] = [];
   private activeSession: Session | null = null;
   private currentVolunteer: Volunteer | null = null;
   private listeners: Set<() => void> = new Set();
@@ -235,6 +253,53 @@ class DatabaseService {
       const storedPerks = localStorage.getItem(STORAGE_KEYS.PERKS);
       this.volunteerPerks = storedPerks ? JSON.parse(storedPerks) : [];
 
+      const storedTpe = localStorage.getItem(STORAGE_KEYS.TPE_SETTINGS);
+      this.tpeSettings = storedTpe ? JSON.parse(storedTpe) : DEFAULT_TPE_SETTINGS;
+
+      const storedTpeLogs = localStorage.getItem(STORAGE_KEYS.TPE_LOGS);
+      this.tpeLogs = storedTpeLogs ? JSON.parse(storedTpeLogs) : [];
+      if (this.tpeLogs.length === 0) {
+        this.tpeLogs = [
+          {
+            id: 'tpe-init-1',
+            timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
+            amount: 2.20,
+            currency: 'EUR',
+            status: 'SUCCESS',
+            readerName: 'SumUp Solo (Foyer MDL)',
+            cardBrand: 'Visa Contactless',
+            last4: '4821',
+            transactionCode: 'TX-SUM-9281',
+            volunteerName: 'Jérémy (Bénévole)'
+          },
+          {
+            id: 'tpe-init-2',
+            timestamp: new Date(Date.now() - 1000 * 60 * 75).toISOString(),
+            amount: 1.50,
+            currency: 'EUR',
+            status: 'SUCCESS',
+            readerName: 'SumUp Solo (Foyer MDL)',
+            cardBrand: 'Apple Pay (Mastercard)',
+            last4: '1094',
+            transactionCode: 'TX-SUM-9280',
+            volunteerName: 'Délégué CVL (Admin)'
+          },
+          {
+            id: 'tpe-init-3',
+            timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
+            amount: 3.00,
+            currency: 'EUR',
+            status: 'SUCCESS',
+            readerName: 'SumUp Solo (Foyer MDL)',
+            cardBrand: 'CB Sans-Contact',
+            last4: '3349',
+            transactionCode: 'TX-SUM-9279',
+            volunteerName: 'Jérémy (Bénévole)'
+          }
+        ];
+        this.saveTpeLogs();
+      }
+
       // Si base sans données multi-mois ou version antérieure, réinjecter
       const hasMultiMonth = this.sales.some(s => new Date(s.timestamp).getMonth() !== new Date().getMonth());
       const seedVersion = localStorage.getItem('OPENMDL_SEED_V');
@@ -282,6 +347,14 @@ class DatabaseService {
 
   private saveLogs(): void {
     localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs));
+  }
+
+  public saveTpeSettings(): void {
+    localStorage.setItem(STORAGE_KEYS.TPE_SETTINGS, JSON.stringify(this.tpeSettings));
+  }
+
+  public saveTpeLogs(): void {
+    localStorage.setItem(STORAGE_KEYS.TPE_LOGS, JSON.stringify(this.tpeLogs));
   }
 
   public logActivity(type: ActivityLog['type'], message: string): void {
@@ -483,6 +556,69 @@ class DatabaseService {
     this.notify();
 
     return { success: true, message: `Mot de passe mis à jour pour @${user.username}` };
+  }
+
+  // --- Gestion du TPE SumUp ---
+  public getTpeSettings(): TpeSettings {
+    return { ...this.tpeSettings };
+  }
+
+  public updateTpeSettings(settings: Partial<TpeSettings>): void {
+    this.tpeSettings = { ...this.tpeSettings, ...settings };
+    this.saveTpeSettings();
+    this.notify();
+  }
+
+  public connectTpe(account: { merchantName: string; merchantEmail: string; readerModel?: 'SumUp Solo' | 'SumUp Air' }): void {
+    this.tpeSettings = {
+      ...this.tpeSettings,
+      isConnected: true,
+      merchantName: account.merchantName || 'Maison des Lycéens',
+      merchantEmail: account.merchantEmail || 'contact.mdl@lycee.fr',
+      readerModel: account.readerModel || 'SumUp Solo',
+      readerName: `${account.readerModel || 'SumUp Solo'} (${account.merchantName || 'Foyer MDL'})`,
+      serialNumber: `SOLO-MDL-${Math.floor(1000 + Math.random() * 9000)}`,
+      batteryLevel: 96
+    };
+    this.saveTpeSettings();
+    this.logActivity('INFO', `Terminal ${this.tpeSettings.readerModel} connecté au compte ${this.tpeSettings.merchantName}`);
+    this.notify();
+  }
+
+  public disconnectTpe(): void {
+    this.tpeSettings.isConnected = false;
+    this.saveTpeSettings();
+    this.logActivity('WARNING', `Terminal ${this.tpeSettings.readerName} déconnecté`);
+    this.notify();
+  }
+
+  public recordTpePayment(payment: {
+    amount: number;
+    cardBrand?: string;
+    last4?: string;
+    status?: 'SUCCESS' | 'FAILED';
+  }): TpePaymentLog {
+    const log: TpePaymentLog = {
+      id: 'tpe-tx-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      timestamp: new Date().toISOString(),
+      amount: payment.amount,
+      currency: 'EUR',
+      status: payment.status || 'SUCCESS',
+      readerName: this.tpeSettings.readerName,
+      cardBrand: payment.cardBrand || 'Sans-Contact / CB',
+      last4: payment.last4 || `${Math.floor(1000 + Math.random() * 9000)}`,
+      transactionCode: `TX-${Date.now().toString(36).toUpperCase()}`,
+      volunteerName: this.currentVolunteer?.name || 'Inconnu'
+    };
+    this.tpeLogs.unshift(log);
+    if (this.tpeLogs.length > 200) this.tpeLogs.pop();
+    this.saveTpeLogs();
+    this.notify();
+    return log;
+  }
+
+  public getTpeLogs(): TpePaymentLog[] {
+    return [...this.tpeLogs];
   }
 
   public logout(): void {

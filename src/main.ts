@@ -9,6 +9,7 @@ import { CatalogView } from './pages/CatalogView';
 import { RestockView } from './pages/RestockView';
 import { StatsView } from './pages/StatsView';
 import { SettingsView } from './pages/SettingsView';
+import { TpeView } from './pages/TpeView';
 
 class App {
   private appRoot: HTMLElement;
@@ -37,6 +38,18 @@ class App {
     // Écouter les changements de la base de données
     db.subscribe(() => {
       this.render();
+    });
+
+    // Support touche F11 pour basculer en plein écran Kiosque immersif
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
     });
 
     this.render();
@@ -110,6 +123,11 @@ class App {
       case 'stats': {
         const stats = new StatsView();
         pageContainer.appendChild(stats.render());
+        break;
+      }
+      case 'tpe': {
+        const tpeView = new TpeView(() => this.render());
+        pageContainer.appendChild(tpeView.render());
         break;
       }
       case 'settings': {

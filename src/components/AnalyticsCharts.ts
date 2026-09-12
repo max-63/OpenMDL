@@ -15,6 +15,7 @@ import {
   Filler
 } from 'chart.js';
 import { Product, Sale, VolunteerPerk, ProductStockEvolution } from '../types';
+import { db } from '../services/db';
 
 // Enregistrement modulaire des composants Chart.js
 Chart.register(
@@ -346,6 +347,10 @@ export class AnalyticsCharts {
     const monthlyCost = new Array(12).fill(0);
     const monthlyGrossMargin = new Array(12).fill(0);
     const monthlyPerks = new Array(12).fill(0);
+    const monthlySumupFees = new Array(12).fill(0);
+
+    const tpeSettings = db.getTpeSettings();
+    const commissionRate = (tpeSettings?.commissionRate ?? 1.75) / 100;
 
     sales.forEach(s => {
       const d = new Date(s.timestamp);
@@ -359,6 +364,11 @@ export class AnalyticsCharts {
         });
         monthlyCost[m] += sCost;
         monthlyGrossMargin[m] += Math.max(0, s.totalAmount - sCost);
+
+        // Frais SumUp (1.75%) prélevés sur chaque encaissement TPE
+        if (s.paymentMethod === 'tpe') {
+          monthlySumupFees[m] += s.totalAmount * commissionRate;
+        }
       }
     });
 
@@ -370,12 +380,14 @@ export class AnalyticsCharts {
       }
     });
 
-    // Calcul précis des 4 couches de la barre :
-    // 1. Coût initial à l'achat (base bleue)
-    // 2. Marge nette restante conservée par le foyer (vert émeraude)
-    // 3. Consos bénévoles prises sur la marge (rose hachuré SUR la barre)
-    // 4. DÉPASSEMENT / DÉFICIT : si les consos bénévoles dépassent la marge, ça DÉPASSE au-dessus de la barre en rouge vif hachuré !
+    // Calcul précis des 5 couches de la barre :
+    // 1. Coût initial à l'achat fournisseur (base bleue)
+    // 2. Frais SumUp TPE (indigo/violet SumUp 1.75%)
+    // 3. Marge nette restante conservée par le foyer (vert émeraude)
+    // 4. Consos bénévoles prises sur la marge (rose hachuré SUR la barre)
+    // 5. DÉPASSEMENT / DÉFICIT : si consos + frais dépassent la marge, ça DÉPASSE au-dessus de la barre en rouge vif hachuré !
     const baseCostData: number[] = [];
+    const sumupFeesData: number[] = [];
     const netMarginData: number[] = [];
     const perksOnMarginData: number[] = [];
     const overflowDeficitData: number[] = [];
@@ -383,20 +395,25 @@ export class AnalyticsCharts {
     for (let m = 0; m < 12; m++) {
       const c = monthlyCost[m];
       const gm = monthlyGrossMargin[m];
+      const sf = monthlySumupFees[m];
       const p = monthlyPerks[m];
 
-      if (p <= gm) {
-        // Normal : les consos sont couvertes par la marge
-        baseCostData.push(Number(c.toFixed(2)));
-        netMarginData.push(Number((gm - p).toFixed(2)));
+      baseCostData.push(Number(c.toFixed(2)));
+      sumupFeesData.push(Number(sf.toFixed(2)));
+
+      // Marge brute restante après déduction obligatoire des frais bancaires SumUp
+      const marginAfterFees = Math.max(0, gm - sf);
+
+      if (p <= marginAfterFees) {
+        // Normal : les consos et les frais SumUp sont couverts par la marge
+        netMarginData.push(Number((marginAfterFees - p).toFixed(2)));
         perksOnMarginData.push(Number(p.toFixed(2)));
         overflowDeficitData.push(0);
       } else {
-        // ALERTE DÉPASSEMENT : les consos ont englouti toute la marge et dépassent au-dessus de la barre !
-        baseCostData.push(Number(c.toFixed(2)));
+        // ALERTE DÉPASSEMENT : les frais et les consos ont englouti toute la marge et dépassent au-dessus de la barre !
         netMarginData.push(0);
-        perksOnMarginData.push(Number(gm.toFixed(2)));
-        overflowDeficitData.push(Number((p - gm).toFixed(2)));
+        perksOnMarginData.push(Number(marginAfterFees.toFixed(2)));
+        overflowDeficitData.push(Number((p - marginAfterFees).toFixed(2)));
       }
     }
 
@@ -429,9 +446,21 @@ export class AnalyticsCharts {
             stack: 'sales-bar',
             maxBarThickness: 34
           },
-          // 2. Couche 2 : Marge brute restante conservée par le foyer
+          // 2. Couche 2 : Frais SumUp (1.75% sur encaissements CB)
           {
-            label: "2. Marge nette conservée (€)",
+            label: "2. Frais SumUp TPE (1.75%) (€)",
+            data: sumupFeesData,
+            backgroundColor: '#6366f1', // Indigo SumUp
+            borderColor: '#4f46e5',
+            borderWidth: 1,
+            borderRadius: 0,
+            borderSkipped: false,
+            stack: 'sales-bar',
+            maxBarThickness: 34
+          },
+          // 3. Couche 3 : Marge brute restante conservée par le foyer
+          {
+            label: "3. Marge nette conservée (€)",
             data: netMarginData,
             backgroundColor: '#10b981', // Émeraude vif
             borderRadius: 0,
@@ -439,9 +468,9 @@ export class AnalyticsCharts {
             stack: 'sales-bar',
             maxBarThickness: 34
           },
-          // 3. Couche 3 : Consos bénévoles prises sur la marge (HACHURÉ SUR LA BARRE)
+          // 4. Couche 4 : Consos bénévoles prises sur la marge (HACHURÉ SUR LA BARRE)
           {
-            label: "3. Consos bénévoles (Hachuré sur marge) (€)",
+            label: "4. Consos bénévoles (Hachuré sur marge) (€)",
             data: perksOnMarginData,
             backgroundColor: normalPerksPattern as any,
             borderColor: '#ec4899',
@@ -451,9 +480,9 @@ export class AnalyticsCharts {
             stack: 'sales-bar',
             maxBarThickness: 34
           },
-          // 4. Couche 4 : DÉPASSEMENT DÉFICIT DANGER (DÉPASSE de la barre des ventes si consos > marge !)
+          // 5. Couche 5 : DÉPASSEMENT DÉFICIT DANGER (DÉPASSE de la barre des ventes si consos + frais > marge !)
           {
-            label: "4. 🚨 Dépassement / Déficit (DÉPASSE DE LA BARRE) (€)",
+            label: "5. 🚨 Dépassement / Déficit (DÉPASSE DE LA BARRE) (€)",
             data: overflowDeficitData,
             backgroundColor: overflowDeficitPattern as any,
             borderColor: '#e11d48',
@@ -495,16 +524,19 @@ export class AnalyticsCharts {
                 const mIdx = items[0].dataIndex;
                 const cost = monthlyCost[mIdx];
                 const gm = monthlyGrossMargin[mIdx];
+                const sumup = monthlySumupFees[mIdx];
                 const perksTot = monthlyPerks[mIdx];
                 const revenue = cost + gm;
-                const overflow = Math.max(0, perksTot - gm);
+                const netProfit = gm - sumup - perksTot;
 
-                let text = `Prix de vente (CA) : ${revenue.toFixed(2)} €\n`;
-                text += `Consos bénévoles totales : ${perksTot.toFixed(2)} €\n`;
-                if (overflow > 0) {
-                  text += `🚨 DÉPASSEMENT : +${overflow.toFixed(2)} € (Consos supérieures à la marge !)`;
+                let text = `Prix de vente (CA total) : ${revenue.toFixed(2)} €\n`;
+                text += `• Achat marchandises fournisseur : ${cost.toFixed(2)} €\n`;
+                text += `• Frais bancaires SumUp (TPE 1.75%) : -${sumup.toFixed(2)} €\n`;
+                text += `• Consos bénévoles offertes : -${perksTot.toFixed(2)} €\n`;
+                if (netProfit < 0) {
+                  text += `🚨 DÉFICIT : -${Math.abs(netProfit).toFixed(2)} € (Frais + Consos > Marge !)`;
                 } else {
-                  text += `Marge nette restante : +${(gm - perksTot).toFixed(2)} € (Rentable)`;
+                  text += `Bénéfice net conservé par la MDL : +${netProfit.toFixed(2)} €`;
                 }
                 return text;
               }

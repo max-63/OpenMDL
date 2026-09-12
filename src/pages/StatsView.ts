@@ -47,8 +47,12 @@ export class StatsView {
       });
     });
 
+    const tpeSettings = db.getTpeSettings();
+    const commissionRate = (tpeSettings?.commissionRate ?? 1.75) / 100;
+    const totalSumupFees = totalTpe * commissionRate;
+
     const totalPerksCost = perks.reduce((sum, p) => sum + p.costPrice, 0);
-    const realNetProfit = totalRevenue - totalCOGS - totalPerksCost;
+    const realNetProfit = totalRevenue - totalCOGS - totalSumupFees - totalPerksCost;
     const netMarginPct = totalRevenue > 0 ? Math.round((realNetProfit / totalRevenue) * 100) : 0;
 
     // Calculs spécifiques pour le mois sélectionné (pour inspection mensuelle)
@@ -64,15 +68,18 @@ export class StatsView {
 
     let selMonthRev = 0;
     let selMonthCost = 0;
+    let selMonthTpeRev = 0;
     selMonthSales.forEach(s => {
       selMonthRev += s.totalAmount;
+      if (s.paymentMethod === 'tpe') selMonthTpeRev += s.totalAmount;
       s.items.forEach(it => {
         const prod = products.find(p => p.id === it.productId);
         selMonthCost += (prod ? prod.costPrice : it.unitPrice * 0.5) * it.quantity;
       });
     });
+    const selMonthSumupFees = selMonthTpeRev * commissionRate;
     const selMonthPerksCost = selMonthPerks.reduce((sum, p) => sum + p.costPrice, 0);
-    const selMonthNetProfit = selMonthRev - selMonthCost - selMonthPerksCost;
+    const selMonthNetProfit = selMonthRev - selMonthCost - selMonthSumupFees - selMonthPerksCost;
 
     // Vérification du droit à la conso gratuite du bénévole connecté
     const perkEligibility = currentVolunteer ? db.canClaimVolunteerPerk(currentVolunteer.id) : { allowed: false, reason: '', salesToday: 0, requiredSales: 10 };
@@ -267,9 +274,9 @@ export class StatsView {
           <div>
             <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
               ${Icons.barChart('w-4 h-4 text-orange-500')}
-              <span>Comparaison Mensuelle de l'Année (Coûts d'Achat, Marges & Bénévoles Hachurés)</span>
+              <span>Comparaison Mensuelle de l'Année (Achats, Frais SumUp, Marges & Bénévoles)</span>
             </h3>
-            <p class="text-[11px] text-slate-500 dark:text-slate-400">Barre des ventes = Coût initial + Marge brute. Les consos bénévoles sont hachurées sur la marge (si ça dépasse en rouge = déficit !)</p>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Barre des ventes = Coût initial + Frais SumUp (1.75%) + Marge nette. Les consos bénévoles sont hachurées sur la marge (si rouge = dépassement !)</p>
           </div>
 
           <!-- Sélecteur de mois pour inspection détaillée -->
@@ -285,23 +292,29 @@ export class StatsView {
           </div>
         </div>
 
-        <!-- Chiffres clés du mois sélectionné -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200/70 dark:border-slate-800 font-mono-nums text-xs">
+        <!-- Chiffres clés du mois sélectionné (5 colonnes avec Frais SumUp) -->
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200/70 dark:border-slate-800 font-mono-nums text-xs">
           <div>
             <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">CA ${monthNames[this.selectedMonthDetail]}</span>
             <span class="font-black text-slate-900 dark:text-white text-sm">${selMonthRev.toFixed(2)} €</span>
           </div>
           <div>
-            <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Coût Initial Achat</span>
+            <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Coût Achat</span>
             <span class="font-medium text-sky-600 dark:text-sky-400">${selMonthCost.toFixed(2)} €</span>
           </div>
           <div>
-            <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Marge Brute Réalisée</span>
-            <span class="font-bold text-emerald-600 dark:text-emerald-400">+${Math.max(0, selMonthRev - selMonthCost).toFixed(2)} €</span>
+            <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Frais SumUp (1.75%)</span>
+            <span class="font-bold text-indigo-600 dark:text-indigo-400">-${selMonthSumupFees.toFixed(2)} €</span>
           </div>
           <div>
-            <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Consos Bénévoles (Haché)</span>
+            <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Consos Bénévoles</span>
             <span class="font-bold text-pink-600 dark:text-pink-400">-${selMonthPerksCost.toFixed(2)} €</span>
+          </div>
+          <div>
+            <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Bénéfice Net MDL</span>
+            <span class="font-black ${selMonthNetProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}">
+              ${selMonthNetProfit >= 0 ? '+' : ''}${selMonthNetProfit.toFixed(2)} €
+            </span>
           </div>
         </div>
 

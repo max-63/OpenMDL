@@ -68,6 +68,11 @@ fn chrono_free_date() -> String {
     format!("day_{}", days)
 }
 
+#[tauri::command]
+fn exit_app(app_handle: tauri::AppHandle) {
+    app_handle.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -79,9 +84,19 @@ pub fn run() {
                         .build(),
                 );
             }
+
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.maximize();
+            }
+
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![save_backup, append_log])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                window.app_handle().exit(0);
+            }
+        })
+        .invoke_handler(tauri::generate_handler![save_backup, append_log, exit_app])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
