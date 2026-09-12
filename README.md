@@ -1,4 +1,9 @@
-# 🥤 OpenMDL — Logiciel de Caisse & Gestion du Foyer des Lycéens
+# 🥤 OpenMDL — Logiciel de Caisse & Gestion de Foyer pour MDL, CVL & BDE
+
+> **La solution de caisse enregistreuse open source (POS), moderne, tactile et 100% autonome pour les Foyers de lycées, Maisons des Lycéens (MDL / CVL) et associations étudiantes.**
+
+OpenMDL simplifie la gestion quotidienne des permanences au foyer : encaissement rapide (espèces & TPE SumUp), gestion rigoureuse des stocks et des approvisionnements, réductions adhérents MDL, clôture de caisse guidée et comptabilité exportable en un clic.
+
 
 <div align="center">
   <img src="public/assets/logo_banniere.png" alt="OpenMDL Logo" width="360" />
