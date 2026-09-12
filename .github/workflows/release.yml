@@ -1,0 +1,65 @@
+name: Release OpenMDL
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'windows-latest' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build Tauri application & Publish Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'OpenMDL ${{ github.ref_name }}'
+          releaseBody: |
+            ## OpenMDL - Caisse & Foyer MDL
+
+            Application moderne et intuitive pour la gestion de caisse, stocks, terminaux TPE SumUp et comptabilité de foyer lycéen.
+
+            ### Téléchargements disponibles ci-dessous :
+            - **Windows (10 / 11)** : `.exe` (Installateur NSIS) ou `.msi`
+            - **Linux Mint / Ubuntu / Debian** : `.deb`
+            - **Linux Universel** : `.AppImage`
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
