@@ -11,6 +11,7 @@
   [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss)](https://tailwindcss.com/)
   [![Platform](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows-green)](#-téléchargements--installateurs)
   [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+  
 </div>
 
 ---
