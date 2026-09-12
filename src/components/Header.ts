@@ -174,22 +174,32 @@ export class HeaderComponent {
     // Gestionnaires des contrôles de fenêtre Tauri (Minimiser, Agrandir, Fermer)
     header.querySelector('#btn-win-min')?.addEventListener('click', async () => {
       try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().minimize();
-      } catch (e) {
-        console.warn('Tauri window minimize:', e);
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('minimize_window');
+      } catch {
+        try {
+          const { getCurrentWindow } = await import('@tauri-apps/api/window');
+          await getCurrentWindow().minimize();
+        } catch (e) {
+          console.warn('Tauri window minimize:', e);
+        }
       }
     });
 
     header.querySelector('#btn-win-max')?.addEventListener('click', async () => {
       try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().toggleMaximize();
-      } catch (e) {
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen().catch(() => { });
-        } else {
-          document.exitFullscreen().catch(() => { });
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('toggle_maximize');
+      } catch {
+        try {
+          const { getCurrentWindow } = await import('@tauri-apps/api/window');
+          await getCurrentWindow().toggleMaximize();
+        } catch (e) {
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => { });
+          } else {
+            document.exitFullscreen().catch(() => { });
+          }
         }
       }
     });

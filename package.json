@@ -12,7 +12,9 @@
     "build:app": "tauri build",
     "build:appimage": "tauri build --bundles appimage",
     "build:deb": "tauri build --bundles deb",
-    "build:rpm": "tauri build --bundles rpm"
+    "build:rpm": "tauri build --bundles rpm",
+    "build:win": "tauri build --target x86_64-pc-windows-gnu --bundles nsis",
+    "build:all": "./build-all.sh"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

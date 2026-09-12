@@ -265,20 +265,30 @@ export class LoginView {
     // Gestionnaires des contrôles de fenêtre Tauri sur l'écran de login
     container.querySelector('#btn-login-win-min')?.addEventListener('click', async () => {
       try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().minimize();
-      } catch {}
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('minimize_window');
+      } catch {
+        try {
+          const { getCurrentWindow } = await import('@tauri-apps/api/window');
+          await getCurrentWindow().minimize();
+        } catch {}
+      }
     });
 
     container.querySelector('#btn-login-win-max')?.addEventListener('click', async () => {
       try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().toggleMaximize();
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('toggle_maximize');
       } catch {
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen().catch(() => {});
-        } else {
-          document.exitFullscreen().catch(() => {});
+        try {
+          const { getCurrentWindow } = await import('@tauri-apps/api/window');
+          await getCurrentWindow().toggleMaximize();
+        } catch {
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          } else {
+            document.exitFullscreen().catch(() => {});
+          }
         }
       }
     });

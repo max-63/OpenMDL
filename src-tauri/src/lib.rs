@@ -57,13 +57,18 @@ fn append_log(app_handle: tauri::AppHandle, message: String) -> Result<(), Strin
 
 fn chrono_free_timestamp() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     format!("{}", duration.as_secs())
 }
 
 fn chrono_free_date() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let days = secs / 86400;
     format!("day_{}", days)
 }
