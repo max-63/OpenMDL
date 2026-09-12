@@ -123,8 +123,16 @@ export class CatalogView {
       <!-- Liste de cartes arrondies modernes ("assume ses arrondis") -->
       <div class="space-y-2.5" id="catalog-cards-list">
         ${filtered.length === 0 ? `
-          <div class="py-16 text-center text-xs text-slate-400 font-mono-nums">
-            Aucun article ne correspond à votre recherche "${this.catalogSearchQuery}".
+          <div class="py-16 text-center flex flex-col items-center justify-center gap-3 text-slate-400">
+            <div class="w-12 h-12 rounded-2xl bg-orange-500/10 text-orange-500 flex items-center justify-center">
+              ${Icons.package('w-6 h-6')}
+            </div>
+            <div class="text-sm font-extrabold text-slate-700 dark:text-slate-300">
+              ${this.catalogSearchQuery ? `Aucun article ne correspond à "${this.catalogSearchQuery}"` : 'Votre catalogue est actuellement vide'}
+            </div>
+            <p class="text-xs text-slate-400 max-w-sm">
+              ${this.catalogSearchQuery ? 'Essayez un autre mot-clé ou réinitialisez les filtres.' : 'Cliquez sur le bouton "Ajouter un article" ci-dessus pour enregistrer vos boissons, snacks et friandises.'}
+            </p>
           </div>
         ` : filtered.map(p => {
           const margin = p.price - p.costPrice;
@@ -310,8 +318,35 @@ export class CatalogView {
           </div>
 
           <div>
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">URL Photo</label>
-            <input type="url" id="prod-image" value="${product ? product.imageUrl : ''}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 font-medium transition-all" placeholder="https://images.unsplash.com/..." />
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Photo du Produit</label>
+            <input type="file" id="prod-file-input" accept="image/png, image/jpeg, image/webp, image/svg+xml" class="hidden" />
+            
+            <div id="image-upload-zone" class="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-orange-500 dark:hover:border-orange-500 rounded-2xl p-4 transition-all cursor-pointer bg-slate-50 dark:bg-slate-800/50 flex flex-col items-center justify-center gap-2.5 group">
+              <!-- Aperçu de la photo -->
+              <div id="image-preview-wrapper" class="${product?.imageUrl ? '' : 'hidden'} relative w-24 h-24 rounded-2xl overflow-hidden shadow-xs border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                <img id="image-preview-img" src="${product?.imageUrl || ''}" alt="Aperçu" class="w-full h-full object-cover" />
+                <button type="button" id="btn-remove-photo" title="Supprimer la photo" class="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-black shadow-xs transition-transform hover:scale-110">
+                  ✕
+                </button>
+              </div>
+
+              <!-- Zone de drop quand pas d'image -->
+              <div id="image-empty-placeholder" class="${product?.imageUrl ? 'hidden' : 'flex'} flex-col items-center gap-1.5 text-center py-2">
+                <div class="w-10 h-10 rounded-xl bg-orange-500/10 text-orange-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  ${Icons.image('w-5 h-5')}
+                </div>
+                <div class="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Choisir une photo sur votre PC
+                </div>
+                <div class="text-[10px] text-slate-400 font-medium">
+                  PNG, JPG, WebP (glisser-déposer accepté)
+                </div>
+              </div>
+
+              <div id="image-change-hint" class="${product?.imageUrl ? 'block' : 'hidden'} text-[11px] text-orange-600 dark:text-orange-400 font-bold group-hover:underline">
+                Changer de photo...
+              </div>
+            </div>
           </div>
 
           <div class="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-200 dark:border-slate-800">
@@ -328,12 +363,70 @@ export class CatalogView {
 
     document.body.appendChild(modal);
 
+    let currentImageUrl = product ? product.imageUrl : '';
+
     const closeModal = () => {
       if (modal.parentNode) modal.parentNode.removeChild(modal);
     };
 
     modal.querySelector('#modal-close-x')?.addEventListener('click', closeModal);
     modal.querySelector('#modal-cancel')?.addEventListener('click', closeModal);
+
+    const uploadZone = modal.querySelector('#image-upload-zone') as HTMLElement;
+    const fileInput = modal.querySelector('#prod-file-input') as HTMLInputElement;
+    const previewWrapper = modal.querySelector('#image-preview-wrapper') as HTMLElement;
+    const previewImg = modal.querySelector('#image-preview-img') as HTMLImageElement;
+    const emptyPlaceholder = modal.querySelector('#image-empty-placeholder') as HTMLElement;
+    const changeHint = modal.querySelector('#image-change-hint') as HTMLElement;
+    const btnRemove = modal.querySelector('#btn-remove-photo') as HTMLElement;
+
+    const handleFile = async (file: File) => {
+      if (!file.type.startsWith('image/')) return;
+      const optimized = await this.processImageFile(file);
+      currentImageUrl = optimized;
+      previewImg.src = optimized;
+      previewWrapper.classList.remove('hidden');
+      emptyPlaceholder.classList.add('hidden');
+      changeHint.classList.remove('hidden');
+    };
+
+    uploadZone.addEventListener('click', (e) => {
+      if (e.target === btnRemove || btnRemove.contains(e.target as Node)) return;
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files[0]) {
+        handleFile(fileInput.files[0]);
+      }
+    });
+
+    uploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadZone.classList.add('border-orange-500', 'bg-orange-50/20');
+    });
+
+    uploadZone.addEventListener('dragleave', () => {
+      uploadZone.classList.remove('border-orange-500', 'bg-orange-50/20');
+    });
+
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('border-orange-500', 'bg-orange-50/20');
+      if (e.dataTransfer?.files && e.dataTransfer.files[0]) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    btnRemove?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentImageUrl = '';
+      previewImg.src = '';
+      fileInput.value = '';
+      previewWrapper.classList.add('hidden');
+      emptyPlaceholder.classList.remove('hidden');
+      changeHint.classList.add('hidden');
+    });
 
     modal.querySelector('#product-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -343,7 +436,7 @@ export class CatalogView {
       const stock = parseInt((modal.querySelector('#prod-stock') as HTMLInputElement).value, 10);
       const price = parseFloat((modal.querySelector('#prod-price') as HTMLInputElement).value);
       const costPrice = parseFloat((modal.querySelector('#prod-cost') as HTMLInputElement).value);
-      const imageUrl = (modal.querySelector('#prod-image') as HTMLInputElement).value || 'https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?auto=format&fit=crop&w=400&q=80';
+      const imageUrl = currentImageUrl;
 
       if (isEdit && product) {
         db.updateProduct({
@@ -371,6 +464,44 @@ export class CatalogView {
       closeModal();
       this.renderInto(container);
       this.onUpdate();
+    });
+  }
+
+  private processImageFile(file: File, maxWidth = 360, maxHeight = 360): Promise<string> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve((e.target?.result as string) || '');
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/webp', 0.85));
+        };
+        img.onerror = () => resolve((e.target?.result as string) || '');
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
     });
   }
 }

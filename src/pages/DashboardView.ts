@@ -97,8 +97,16 @@ export class DashboardView {
 
     if (filtered.length === 0) {
       grid.innerHTML = `
-        <div class="col-span-full py-16 text-center text-xs text-slate-400 font-mono-nums">
-          Aucun produit trouvé pour "${this.searchQuery}"
+        <div class="col-span-full py-16 flex flex-col items-center justify-center gap-3 text-center">
+          <div class="w-12 h-12 rounded-2xl bg-orange-500/10 text-orange-500 flex items-center justify-center">
+            ${Icons.package('w-6 h-6')}
+          </div>
+          <div class="text-sm font-extrabold text-slate-700 dark:text-slate-300">
+            ${this.searchQuery ? `Aucun produit trouvé pour "${this.searchQuery}"` : 'Le catalogue est actuellement vide'}
+          </div>
+          <p class="text-xs text-slate-400 max-w-sm">
+            ${this.searchQuery ? 'Vérifiez l\'orthographe de votre recherche.' : 'Rendez-vous dans l\'onglet "Catalogue & Tarifs" pour ajouter vos boissons, snacks et friandises.'}
+          </p>
         </div>
       `;
       return;

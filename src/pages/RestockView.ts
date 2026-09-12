@@ -63,7 +63,11 @@ export class RestockView {
           </div>
 
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-56 overflow-y-auto p-1 border border-slate-100 dark:border-slate-800/60 rounded-2xl" id="restock-products-grid">
-            ${products.map(p => `
+            ${products.length === 0 ? `
+              <div class="col-span-full py-8 text-center text-xs text-slate-400 font-sans">
+                Aucun article au catalogue. Rendez-vous dans "Catalogue & Tarifs" pour créer vos premiers produits.
+              </div>
+            ` : products.map(p => `
               <button 
                 type="button"
                 data-select-prod="${p.id}" 

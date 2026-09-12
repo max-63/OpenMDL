@@ -22,8 +22,11 @@ export interface ActivityLog {
   author: string;
 }
 
-// Données initiales authentiques MDL
-const INITIAL_PRODUCTS: Product[] = [
+// Catalogue vierge par défaut (prêt pour la production et release)
+const INITIAL_PRODUCTS: Product[] = [];
+
+// Données d'exemples utilisées uniquement lors de l'activation du Mode Démo (Screenshots)
+const DEMO_PRODUCTS: Product[] = [
   {
     id: 'prod-1',
     name: 'Kinder Bueno',
@@ -63,7 +66,7 @@ const INITIAL_PRODUCTS: Product[] = [
     category: 'boissons',
     price: 1.00,
     costPrice: 0.49,
-    stock: 6, // Stock bas pour tester l'alerte
+    stock: 6,
     minStockAlert: 10,
     imageUrl: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?auto=format&fit=crop&w=400&q=80',
     isActive: true
@@ -107,7 +110,7 @@ const INITIAL_PRODUCTS: Product[] = [
     category: 'boissons',
     price: 0.80,
     costPrice: 0.35,
-    stock: 4, // Stock très faible
+    stock: 4,
     minStockAlert: 12,
     imageUrl: 'https://images.unsplash.com/photo-1600271886742-f049cd451bba?auto=format&fit=crop&w=400&q=80',
     isActive: true
@@ -136,12 +139,28 @@ const INITIAL_PRODUCTS: Product[] = [
   }
 ];
 
+// Compte Administrateur unique pour application 100% vierge
 const INITIAL_VOLUNTEERS: Volunteer[] = [
   {
     id: 'vol-admin',
     username: 'admin',
     password: 'admin',
-    name: 'Délégué CVL (Admin)',
+    name: 'Administrateur',
+    role: 'Bureau MDL / CVL',
+    avatarColor: '#ea580c',
+    isAdmin: true,
+    isSuspended: false,
+    createdAt: new Date().toISOString()
+  }
+];
+
+// Utilisateurs d'exemple pour le mode démonstration et captures d'écran
+const DEMO_VOLUNTEERS: Volunteer[] = [
+  {
+    id: 'vol-admin',
+    username: 'admin',
+    password: 'admin',
+    name: 'Adrien (Responsable MDL)',
     role: 'Délégué élu CVL / Bureau MDL',
     avatarColor: '#ea580c',
     isAdmin: true,
@@ -149,12 +168,23 @@ const INITIAL_VOLUNTEERS: Volunteer[] = [
     createdAt: new Date().toISOString()
   },
   {
-    id: 'vol-jeremy',
-    username: 'jeremy',
+    id: 'vol-2',
+    username: 'sarah',
     password: 'password123',
-    name: 'Jérémy (Bénévole)',
-    role: 'Bénévole Permanence',
-    avatarColor: '#3b82f6',
+    name: 'Sarah L. (Trésorière)',
+    role: 'Bureau MDL',
+    avatarColor: '#8b5cf6',
+    isAdmin: true,
+    isSuspended: false,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'vol-3',
+    username: 'thomas',
+    password: 'password123',
+    name: 'Thomas M. (Bénévole)',
+    role: 'Permanence Foyer',
+    avatarColor: '#10b981',
     isAdmin: false,
     isSuspended: false,
     createdAt: new Date().toISOString()
@@ -258,55 +288,6 @@ class DatabaseService {
 
       const storedTpeLogs = localStorage.getItem(STORAGE_KEYS.TPE_LOGS);
       this.tpeLogs = storedTpeLogs ? JSON.parse(storedTpeLogs) : [];
-      if (this.tpeLogs.length === 0) {
-        this.tpeLogs = [
-          {
-            id: 'tpe-init-1',
-            timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
-            amount: 2.20,
-            currency: 'EUR',
-            status: 'SUCCESS',
-            readerName: 'SumUp Solo (Foyer MDL)',
-            cardBrand: 'Visa Contactless',
-            last4: '4821',
-            transactionCode: 'TX-SUM-9281',
-            volunteerName: 'Jérémy (Bénévole)'
-          },
-          {
-            id: 'tpe-init-2',
-            timestamp: new Date(Date.now() - 1000 * 60 * 75).toISOString(),
-            amount: 1.50,
-            currency: 'EUR',
-            status: 'SUCCESS',
-            readerName: 'SumUp Solo (Foyer MDL)',
-            cardBrand: 'Apple Pay (Mastercard)',
-            last4: '1094',
-            transactionCode: 'TX-SUM-9280',
-            volunteerName: 'Délégué CVL (Admin)'
-          },
-          {
-            id: 'tpe-init-3',
-            timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-            amount: 3.00,
-            currency: 'EUR',
-            status: 'SUCCESS',
-            readerName: 'SumUp Solo (Foyer MDL)',
-            cardBrand: 'CB Sans-Contact',
-            last4: '3349',
-            transactionCode: 'TX-SUM-9279',
-            volunteerName: 'Jérémy (Bénévole)'
-          }
-        ];
-        this.saveTpeLogs();
-      }
-
-      // Si base sans données multi-mois ou version antérieure, réinjecter
-      const hasMultiMonth = this.sales.some(s => new Date(s.timestamp).getMonth() !== new Date().getMonth());
-      const seedVersion = localStorage.getItem('OPENMDL_SEED_V');
-      if (this.sales.length < 10 || !hasMultiMonth || seedVersion !== 'v4') {
-        this.seedInitialAnalyticsData();
-        localStorage.setItem('OPENMDL_SEED_V', 'v4');
-      }
 
       const storedActive = localStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION);
       if (storedActive) {
@@ -935,14 +916,21 @@ class DatabaseService {
     localStorage.setItem(STORAGE_KEYS.PERKS, JSON.stringify(this.volunteerPerks));
   }
 
-  // --- Données d'exemple riches pour Graphiques et Démo ---
-  private seedInitialAnalyticsData(): void {
+  // --- Données d'exemple riches pour Graphiques et Démo (Activables sur demande) ---
+  public seedDemoData(): void {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
+    // Injecter les utilisateurs de démonstration
+    this.volunteers = JSON.parse(JSON.stringify(DEMO_VOLUNTEERS));
+    this.saveVolunteers();
+    this.currentVolunteer = this.volunteers[0];
+
     // Générer des ventes sur les 5 derniers jours
     const sampleSales: Sale[] = [];
-    const prods = this.products.length > 0 ? this.products : INITIAL_PRODUCTS;
+    this.products = JSON.parse(JSON.stringify(DEMO_PRODUCTS));
+    this.saveProducts();
+    const prods = this.products;
 
     // Ventes d'aujourd'hui pour Adrien (12 ventes pour dépasser les 10 requises)
     for (let i = 0; i < 12; i++) {
@@ -1101,6 +1089,83 @@ class DatabaseService {
 
     this.restocks = sampleRestocks;
     this.saveRestocks();
+
+    // Ajouter des logs TPE de démo
+    this.tpeLogs = [
+      {
+        id: 'tpe-demo-1',
+        timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
+        amount: 2.20,
+        currency: 'EUR',
+        status: 'SUCCESS',
+        readerName: 'SumUp Solo (Foyer MDL)',
+        cardBrand: 'Visa Contactless',
+        last4: '4821',
+        transactionCode: 'TX-SUM-9281',
+        volunteerName: 'Jérémy (Bénévole)'
+      },
+      {
+        id: 'tpe-demo-2',
+        timestamp: new Date(Date.now() - 1000 * 60 * 75).toISOString(),
+        amount: 1.50,
+        currency: 'EUR',
+        status: 'SUCCESS',
+        readerName: 'SumUp Solo (Foyer MDL)',
+        cardBrand: 'Apple Pay (Mastercard)',
+        last4: '1094',
+        transactionCode: 'TX-SUM-9280',
+        volunteerName: 'Délégué CVL (Admin)'
+      },
+      {
+        id: 'tpe-demo-3',
+        timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
+        amount: 3.00,
+        currency: 'EUR',
+        status: 'SUCCESS',
+        readerName: 'SumUp Solo (Foyer MDL)',
+        cardBrand: 'CB Sans-Contact',
+        last4: '3349',
+        transactionCode: 'TX-SUM-9279',
+        volunteerName: 'Jérémy (Bénévole)'
+      }
+    ];
+    this.saveTpeLogs();
+
+    localStorage.setItem('OPENMDL_DEMO_ACTIVE', 'true');
+    this.notify();
+  }
+
+  public clearAllTestData(resetProducts = true, resetVolunteers = true): void {
+    this.sales = [];
+    this.sessions = [];
+    this.restocks = [];
+    this.volunteerPerks = [];
+    this.tpeLogs = [];
+    this.logs = [];
+    this.activeSession = null;
+    localStorage.removeItem('OPENMDL_DEMO_ACTIVE');
+    localStorage.removeItem('OPENMDL_SEED_V');
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    this.saveSales();
+    this.saveSessions();
+    this.saveRestocks();
+    this.saveVolunteerPerks();
+    this.saveTpeLogs();
+    this.saveLogs();
+    if (resetProducts) {
+      this.products = [];
+      this.saveProducts();
+    }
+    if (resetVolunteers) {
+      this.volunteers = JSON.parse(JSON.stringify(INITIAL_VOLUNTEERS));
+      this.saveVolunteers();
+      this.currentVolunteer = this.volunteers[0];
+    }
+    this.notify();
+  }
+
+  public isDemoMode(): boolean {
+    return localStorage.getItem('OPENMDL_DEMO_ACTIVE') === 'true';
   }
 
   // --- Évolution des stocks au cours du temps pour un produit sélectionné ---
@@ -1110,6 +1175,25 @@ class DatabaseService {
     month: number | 'all' = 'all'
   ): ProductStockEvolution {
     const prod = this.products.find(p => p.id === productId) || this.products[0];
+    if (!prod) {
+      return {
+        product: { id: '', name: 'Aucun produit', category: 'autre', price: 0, costPrice: 0, stock: 0, minStockAlert: 0, imageUrl: '', isActive: false },
+        timeframe: month === 'all' ? 'year' : 'month',
+        year,
+        month,
+        dataPoints: [],
+        summary: {
+          currentStock: 0,
+          initialStock: 0,
+          totalSold: 0,
+          totalRestocked: 0,
+          dailyVelocity: 0,
+          daysUntilOut: null,
+          recommendedRestockQty: 0,
+          urgentStatus: 'ok'
+        }
+      };
+    }
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();

@@ -5,7 +5,7 @@ export class LoginView {
   private onLoginSuccess: () => void;
   private errorMessage: string | null = null;
   private selectedUsername: string = 'admin';
-  private passwordValue: string = 'admin';
+  private passwordValue: string = '';
   private showPassword: boolean = false;
 
   constructor(onLoginSuccess: () => void) {
@@ -148,7 +148,6 @@ export class LoginView {
                   <button 
                     type="button"
                     data-fill-user="${v.username}"
-                    data-fill-pass="${v.password}"
                     class="w-full p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:border-orange-400 dark:hover:border-orange-500/50 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-orange-50/50 dark:hover:bg-slate-800 transition-all flex items-center justify-between text-left group cursor-pointer ${
                       isSuspended ? 'opacity-50 grayscale' : ''
                     }"
@@ -231,17 +230,17 @@ export class LoginView {
       togglePwdBtn.innerHTML = this.showPassword ? Icons.eyeOff('w-4 h-4') : Icons.eye('w-4 h-4');
     });
 
-    // Clic sur sélection rapide de compte
+    // Clic sur sélection rapide de compte (sélectionne l'identifiant et donne le focus au champ mot de passe)
     container.querySelectorAll('[data-fill-user]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const target = e.currentTarget as HTMLElement;
         const user = target.getAttribute('data-fill-user') || '';
-        const pass = target.getAttribute('data-fill-pass') || '';
         usernameInput.value = user;
-        passwordInput.value = pass;
+        passwordInput.value = '';
         this.selectedUsername = user;
-        this.passwordValue = pass;
+        this.passwordValue = '';
         errorContainer.classList.add('hidden');
+        passwordInput.focus();
       });
     });
 

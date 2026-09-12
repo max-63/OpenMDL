@@ -83,6 +83,26 @@ export class AnalyticsCharts {
     const chartId = canvas.id || 'stock-evolution-chart';
     this.destroyExisting(chartId);
 
+    if (!evolution || !evolution.product || !evolution.dataPoints || evolution.dataPoints.length === 0) {
+      const emptyChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: ['Aucun produit'],
+          datasets: [{
+            label: 'Stock',
+            data: [0],
+            borderColor: '#94a3b8'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false
+        }
+      });
+      this.activeCharts.set(chartId, emptyChart);
+      return emptyChart;
+    }
+
     const labels = evolution.dataPoints.map(dp => dp.label);
     const stockLevels = evolution.dataPoints.map(dp => dp.stockLevel);
     const thresholdData = evolution.dataPoints.map(dp => dp.minStockAlert);

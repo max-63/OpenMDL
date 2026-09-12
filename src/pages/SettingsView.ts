@@ -176,6 +176,46 @@ export class SettingsView {
               </button>
             </form>
           </div>
+
+          <!-- Carte Gestion des Données, Tests & Démonstration -->
+          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
+            <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+              ${Icons.database('w-4 h-4 text-orange-500')}
+              <span>Gestion des Données & Démo</span>
+            </div>
+
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+              Basculez entre l'état 100% vierge (catalogue vide, compte unique admin / admin, aucune vente) et le mode démonstration (3 comptes, 10 produits avec photos et ventes simulées).
+            </p>
+
+            <div class="space-y-2.5 pt-1">
+              <!-- Bouton Vider les données de test / Remise à zéro -->
+              <button 
+                type="button" 
+                id="btn-clean-data" 
+                class="w-full py-2.5 px-3.5 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-950/60 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 font-extrabold text-xs transition-all flex items-center justify-between cursor-pointer"
+              >
+                <div class="flex items-center gap-2">
+                  ${Icons.trash('w-4 h-4')}
+                  <span>Réinitialiser la caisse (App 100% Vierge)</span>
+                </div>
+                <span class="text-[10px] uppercase font-bold text-rose-500">Zéro Donnée</span>
+              </button>
+
+              <!-- Bouton Charger données de démo -->
+              <button 
+                type="button" 
+                id="btn-seed-demo" 
+                class="w-full py-2.5 px-3.5 rounded-2xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-950/60 border border-sky-200 dark:border-sky-900/50 text-sky-700 dark:text-sky-300 font-extrabold text-xs transition-all flex items-center justify-between cursor-pointer"
+              >
+                <div class="flex items-center gap-2">
+                  ${Icons.trendingUp('w-4 h-4')}
+                  <span>Charger les données de démo</span>
+                </div>
+                <span class="text-[10px] uppercase font-bold text-sky-500">Screenshots</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Colonne Droite : Liste & Gestion des Utilisateurs (7 col) -->
@@ -234,7 +274,7 @@ export class SettingsView {
                           <div class="flex items-center gap-2 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                             <span>${v.role}</span>
                             <span>•</span>
-                            <span class="font-mono text-[11px] text-slate-400">Mot de passe: <code class="px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-800 font-bold">${v.password}</code></span>
+                            <span class="font-mono text-[11px] text-slate-400">Mot de passe: <span class="font-bold tracking-widest text-slate-500">••••••••</span></span>
                           </div>
                         </div>
                       </div>
@@ -447,6 +487,30 @@ export class SettingsView {
         this.editingPasswordUserId = null;
         this.refresh(container);
       });
+    });
+
+    // Bouton Remise à zéro propre (App 100% vierge)
+    container.querySelector('#btn-clean-data')?.addEventListener('click', () => {
+      if (confirm('Voulez-vous remettre l\'application complètement à zéro ? Le catalogue, les ventes, les sessions et TOUS les utilisateurs seront effacés pour ne conserver que l\'unique compte (admin / admin).')) {
+        db.clearAllTestData(true, true);
+        this.feedbackMessage = {
+          text: 'Application 100% vierge ! Catalogue vide et unique compte actif : admin / admin.',
+          type: 'success'
+        };
+        this.refresh(container);
+      }
+    });
+
+    // Bouton Chargement Démo (pour screenshots et présentations)
+    container.querySelector('#btn-seed-demo')?.addEventListener('click', () => {
+      if (confirm('Charger les données de démonstration complètes (ventes sur plusieurs mois, statistiques et graphiques pour captures d\'écran) ?')) {
+        db.seedDemoData();
+        this.feedbackMessage = {
+          text: 'Données de démonstration chargées avec succès ! Les graphiques et bilans sont remplis.',
+          type: 'success'
+        };
+        this.refresh(container);
+      }
     });
   }
 

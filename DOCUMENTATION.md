@@ -116,9 +116,9 @@ En fin de permanence, le bénévole clique sur le bouton **« Fermer la Caisse �
 
 Accessible au bureau de l'association :
 - Création, modification et suppression d'articles.
+- **Importation directe de photos** : Téléversement direct depuis l'ordinateur (PNG, JPG, WebP, SVG) ou par glisser-déposer. Les photos sont redimensionnées et optimisées localement pour fonctionner 100% hors-ligne.
 - Définition d'un **Prix Public** et d'un **Prix Adhérent**.
 - Gestion du stock actuel et du seuil d'alerte (stock bas signalé en rouge/orange sur la caisse).
-- Attribution d'une illustration officielle (formats transparents PNG supportés).
 
 ---
 
@@ -146,11 +146,13 @@ L'onglet **Statistiques** offre une visibilité totale sur la santé financière
 
 ---
 
-### 3.8 Paramètres & Personnalisation
+### 3.8 Paramètres & Gestion des Données
 
-- Modification du code PIN du bureau/trésorier.
+- **Gestion des comptes & mots de passe bénévoles**.
+- **Bascule Production / Démonstration** :
+  - **« Réinitialiser la caisse à zéro »** : Épure instantanément toutes les ventes et transactions de test pour démarrer avec une caisse neuve et propre au foyer du lycée.
+  - **« Charger les données de démo »** : Génère en un clic un jeu complet de données réalistes sur plusieurs mois pour faire des démonstrations et des captures d'écran.
 - Configuration du pourcentage de frais TPE (par défaut : `1.75%`).
-- Définition du nom du lycée et de la MDL.
 - Bascule du thème visuel (Clair / Sombre).
 - Sauvegarde et restauration manuelle de la base de données.
 

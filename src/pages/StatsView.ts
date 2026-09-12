@@ -345,7 +345,7 @@ export class StatsView {
               
               <!-- Liste déroulante des produits -->
               <select id="select-stock-product" class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/30 cursor-pointer">
-                ${products.map(p => `
+                ${products.length === 0 ? '<option value="">(Aucun produit au catalogue)</option>' : products.map(p => `
                   <option value="${p.id}" ${p.id === currentStockProdId ? 'selected' : ''}>
                     ${p.name} (Stock: ${p.stock} u)
                   </option>
