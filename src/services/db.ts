@@ -636,10 +636,10 @@ class DatabaseService {
       this.currentVolunteer.name = cleanName;
     }
 
-    this.logActivity('INFO', `Blaze/nom de @${user.username} modifié en "${cleanName}"`);
+    this.logActivity('INFO', `Nom de @${user.username} modifié en "${cleanName}"`);
     this.notify();
 
-    return { success: true, message: `Nom / blaze mis à jour en "${cleanName}"` };
+    return { success: true, message: `Nom mis à jour en "${cleanName}"` };
   }
 
   // --- Gestion du TPE SumUp ---
@@ -874,6 +874,10 @@ class DatabaseService {
   }
 
   public updateProduct(updated: Product): void {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      this.logActivity('WARNING', `Accès refusé : tentative de modification du catalogue/tarifs par @${this.currentVolunteer.username}`);
+      return;
+    }
     const index = this.products.findIndex(p => p.id === updated.id);
     if (index !== -1) {
       const old = this.products[index];
@@ -885,6 +889,10 @@ class DatabaseService {
   }
 
   public addProduct(product: Omit<Product, 'id'>): Product {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      this.logActivity('WARNING', `Accès refusé : tentative de création de produit par @${this.currentVolunteer.username}`);
+      return { ...product, id: 'unauthorized' };
+    }
     const newProduct: Product = {
       ...product,
       id: 'prod-' + Date.now()
@@ -897,6 +905,10 @@ class DatabaseService {
   }
 
   public deleteProduct(id: string): void {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      this.logActivity('WARNING', `Accès refusé : tentative de suppression de produit par @${this.currentVolunteer.username}`);
+      return;
+    }
     const prod = this.products.find(p => p.id === id);
     if (prod) {
       this.products = this.products.filter(p => p.id !== id);
@@ -908,6 +920,10 @@ class DatabaseService {
 
   // --- Restock Rapide ---
   public applyRestock(productId: string, quantityToAdd: number, newPrice?: number, costPrice?: number): void {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      this.logActivity('WARNING', `Accès refusé : tentative de restock par @${this.currentVolunteer.username}`);
+      return;
+    }
     const prod = this.products.find(p => p.id === productId);
     if (!prod) return;
 

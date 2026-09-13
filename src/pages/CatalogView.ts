@@ -35,6 +35,8 @@ export class CatalogView {
       p.category.toLowerCase().includes(this.catalogSearchQuery.toLowerCase())
     );
 
+    const isAdmin = db.getCurrentVolunteer()?.isAdmin === true;
+
     // 1. En-tête principal de l'îlot
     const header = document.createElement('div');
     header.className = 'px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/80 flex flex-wrap items-center justify-between gap-4 flex-shrink-0';
@@ -62,10 +64,17 @@ export class CatalogView {
           </span>
         </div>
 
-        <button id="btn-add-product" class="px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm shadow-orange-500/20 active:scale-95 transition-all">
-          ${Icons.plus('w-4 h-4')}
-          <span>Nouveau produit</span>
-        </button>
+        ${isAdmin ? `
+          <button id="btn-add-product" class="px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm shadow-orange-500/20 active:scale-95 transition-all">
+            ${Icons.plus('w-4 h-4')}
+            <span>Nouveau produit</span>
+          </button>
+        ` : `
+          <div class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs flex items-center gap-2 border border-slate-200 dark:border-slate-700">
+            ${Icons.shield('w-3.5 h-3.5 text-slate-400')}
+            <span>Mode consultation</span>
+          </div>
+        `}
       </div>
     `;
     container.appendChild(header);
@@ -204,15 +213,22 @@ export class CatalogView {
 
               </div>
 
-              <!-- Bouton Modifier arrondi -->
+              <!-- Bouton Modifier arrondi (Admin uniquement) -->
               <div class="flex-shrink-0 flex items-center justify-end">
-                <button 
-                  data-edit-id="${p.id}" 
-                  class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-orange-500 hover:bg-orange-500 hover:text-white text-slate-700 dark:text-slate-200 font-sans font-bold text-xs transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
-                >
-                  ${Icons.edit('w-3.5 h-3.5')}
-                  <span>Modifier</span>
-                </button>
+                ${isAdmin ? `
+                  <button 
+                    data-edit-id="${p.id}" 
+                    class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-orange-500 hover:bg-orange-500 hover:text-white text-slate-700 dark:text-slate-200 font-sans font-bold text-xs transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+                  >
+                    ${Icons.edit('w-3.5 h-3.5')}
+                    <span>Modifier</span>
+                  </button>
+                ` : `
+                  <span class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 text-xs font-semibold border border-slate-200/60 dark:border-slate-800 flex items-center gap-1.5">
+                    ${Icons.lock('w-3.5 h-3.5')}
+                    <span>Tarif fixe</span>
+                  </span>
+                `}
               </div>
 
             </div>
@@ -253,6 +269,7 @@ export class CatalogView {
   }
 
   private showProductModal(product: Product | null, container: HTMLElement): void {
+    if (!db.getCurrentVolunteer()?.isAdmin) return;
     const isEdit = !!product;
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-enter';

@@ -24,6 +24,7 @@ export class RestockView {
 
     const products = db.getProducts();
     const restocks = db.getRestocks();
+    const isAdmin = db.getCurrentVolunteer()?.isAdmin === true;
 
     if (!this.selectedProductId && products.length > 0) {
       this.selectedProductId = products[0].id;
@@ -44,12 +45,20 @@ export class RestockView {
           </div>
           <p class="text-xs font-medium text-slate-500">Ajout rapide de stock par carton et mise à jour des coûts d'achat</p>
         </div>
-        ${this.successMessage ? `
-          <div class="px-3.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1.5 animate-enter">
-            ${Icons.check('w-3.5 h-3.5')}
-            <span>${this.successMessage}</span>
-          </div>
-        ` : ''}
+        <div class="flex items-center gap-2">
+          ${!isAdmin ? `
+            <div class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs flex items-center gap-1.5 border border-slate-200 dark:border-slate-700">
+              ${Icons.shield('w-3.5 h-3.5 text-slate-400')}
+              <span>Mode consultation</span>
+            </div>
+          ` : ''}
+          ${this.successMessage ? `
+            <div class="px-3.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1.5 animate-enter">
+              ${Icons.check('w-3.5 h-3.5')}
+              <span>${this.successMessage}</span>
+            </div>
+          ` : ''}
+        </div>
       </div>
 
       <!-- Contenu défilable -->
@@ -103,64 +112,90 @@ export class RestockView {
               </div>
             </div>
 
-            <div class="text-right">
-              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nouveau stock prévu</span>
-              <div class="font-mono-nums font-black text-2xl text-emerald-600 dark:text-emerald-400" id="preview-new-stock">
-                ${selectedProduct.stock + this.quantityToAdd} u
+            ${isAdmin ? `
+              <div class="text-right">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nouveau stock prévu</span>
+                <div class="font-mono-nums font-black text-2xl text-emerald-600 dark:text-emerald-400" id="preview-new-stock">
+                  ${selectedProduct.stock + this.quantityToAdd} u
+                </div>
               </div>
-            </div>
+            ` : `
+              <div class="text-right">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Prix de vente</span>
+                <div class="font-mono-nums font-black text-xl text-slate-900 dark:text-white">
+                  ${selectedProduct.price.toFixed(2)} €
+                </div>
+              </div>
+            `}
           </div>
 
-          <!-- 3. Quantité reçue -->
-          <div class="space-y-2">
-            <div class="flex items-center justify-between">
-              <label class="block text-xs font-bold text-slate-600 dark:text-slate-300">2. Quantité reçue (sélection rapide ou sur-mesure)</label>
-              <span class="text-[11px] font-mono-nums font-bold text-orange-500" id="selected-qty-indicator">+${this.quantityToAdd} unités sélectionnées</span>
-            </div>
-            
-            <div class="grid grid-cols-4 sm:grid-cols-5 gap-2 font-mono-nums">
-              <button type="button" data-quick-qty="6" class="py-2.5 rounded-xl text-xs font-bold border transition-all ${this.quantityToAdd === 6 ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'}">+6</button>
-              <button type="button" data-quick-qty="12" class="py-2.5 rounded-xl text-xs font-bold border transition-all ${this.quantityToAdd === 12 ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'}">+12</button>
-              <button type="button" data-quick-qty="24" class="py-2.5 rounded-xl text-xs font-bold border transition-all ${this.quantityToAdd === 24 ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'}">+24 (carton)</button>
-              <button type="button" data-quick-qty="48" class="py-2.5 rounded-xl text-xs font-bold border transition-all ${this.quantityToAdd === 48 ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'}">+48</button>
+          ${isAdmin ? `
+            <!-- 3. Quantité reçue -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-xs font-bold text-slate-600 dark:text-slate-300">2. Quantité reçue (sélection rapide ou sur-mesure)</label>
+                <span class="text-[11px] font-mono-nums font-bold text-orange-500" id="selected-qty-indicator">+${this.quantityToAdd} unités sélectionnées</span>
+              </div>
               
-              <!-- Bouton / Champ Sur-Mesure avec style actif orange visible -->
-              <div class="relative">
-                <input 
-                  type="number" 
-                  min="1" 
-                  id="custom-qty-input" 
-                  value="${[6, 12, 24, 48].includes(this.quantityToAdd) ? '' : this.quantityToAdd}" 
-                  class="w-full text-center py-2.5 text-xs font-bold rounded-xl border transition-all font-mono-nums ${
-                    ![6, 12, 24, 48].includes(this.quantityToAdd)
-                      ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/40 font-black placeholder:text-white/70'
-                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 focus:bg-orange-500 focus:text-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/40'
-                  }" 
-                  placeholder="Autre..." 
-                />
+              <div class="grid grid-cols-4 sm:grid-cols-5 gap-2 font-mono-nums">
+                <button type="button" data-quick-qty="6" class="py-2.5 rounded-xl text-xs font-bold border transition-all ${this.quantityToAdd === 6 ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'}">+6</button>
+                <button type="button" data-quick-qty="12" class="py-2.5 rounded-xl text-xs font-bold border transition-all ${this.quantityToAdd === 12 ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'}">+12</button>
+                <button type="button" data-quick-qty="24" class="py-2.5 rounded-xl text-xs font-bold border transition-all ${this.quantityToAdd === 24 ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'}">+24 (carton)</button>
+                <button type="button" data-quick-qty="48" class="py-2.5 rounded-xl text-xs font-bold border transition-all ${this.quantityToAdd === 48 ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'}">+48</button>
+                
+                <!-- Bouton / Champ Sur-Mesure avec style actif orange visible -->
+                <div class="relative">
+                  <input 
+                    type="number" 
+                    min="1" 
+                    id="custom-qty-input" 
+                    value="${[6, 12, 24, 48].includes(this.quantityToAdd) ? '' : this.quantityToAdd}" 
+                    class="w-full text-center py-2.5 text-xs font-bold rounded-xl border transition-all font-mono-nums ${
+                      ![6, 12, 24, 48].includes(this.quantityToAdd)
+                        ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/25 ring-2 ring-orange-500/40 font-black placeholder:text-white/70'
+                        : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 focus:bg-orange-500 focus:text-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/40'
+                    }" 
+                    placeholder="Autre..." 
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          <!-- 4. Ajustement des prix -->
-          <div class="grid grid-cols-2 gap-3 pt-1">
-            <div>
-              <label class="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Prix de Vente (€)</label>
-              <input type="number" step="0.05" id="restock-new-price" value="${selectedProduct.price.toFixed(2)}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono-nums font-bold text-xs focus:ring-2 focus:ring-orange-500/30" />
+            <!-- 4. Ajustement des prix -->
+            <div class="grid grid-cols-2 gap-3 pt-1">
+              <div>
+                <label class="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Prix de Vente (€)</label>
+                <input type="number" step="0.05" id="restock-new-price" value="${selectedProduct.price.toFixed(2)}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono-nums font-bold text-xs focus:ring-2 focus:ring-orange-500/30" />
+              </div>
+
+              <div>
+                <label class="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Coût d'Achat Fournisseur (€)</label>
+                <input type="number" step="0.05" id="restock-new-cost" value="${selectedProduct.costPrice.toFixed(2)}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono-nums font-bold text-xs focus:ring-2 focus:ring-orange-500/30" />
+              </div>
             </div>
 
-            <div>
-              <label class="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Coût d'Achat Fournisseur (€)</label>
-              <input type="number" step="0.05" id="restock-new-cost" value="${selectedProduct.costPrice.toFixed(2)}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono-nums font-bold text-xs focus:ring-2 focus:ring-orange-500/30" />
+            <div class="pt-2">
+              <button type="button" id="btn-submit-restock" class="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow-sm shadow-emerald-600/20 active:scale-98 transition-all">
+                ${Icons.check('w-4 h-4')}
+                <span>Confirmer le restock (+${this.quantityToAdd} sur ${selectedProduct.name})</span>
+              </button>
             </div>
-          </div>
-
-          <div class="pt-2">
-            <button type="button" id="btn-submit-restock" class="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow-sm shadow-emerald-600/20 active:scale-98 transition-all">
-              ${Icons.check('w-4 h-4')}
-              <span>Confirmer le restock (+${this.quantityToAdd} sur ${selectedProduct.name})</span>
-            </button>
-          </div>
+          ` : `
+            <div class="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 flex items-start gap-3.5 text-slate-600 dark:text-slate-300 shadow-xs">
+              <div class="w-10 h-10 rounded-2xl bg-orange-500/10 text-orange-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                ${Icons.shield('w-5 h-5')}
+              </div>
+              <div class="space-y-1">
+                <h3 class="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">Accès restreint aux administrateurs</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+                  Seuls les délégués administrateurs sont autorisés à réceptionner les arrivages, incrémenter les quantités en stock et ajuster les tarifs ou coûts d'achat.
+                </p>
+                <div class="pt-1 text-[11px] text-slate-400 font-medium">
+                  Vous êtes en mode consultation : vous pouvez parcourir l'état des stocks et consulter l'historique des réceptions.
+                </div>
+              </div>
+            </div>
+          `}
         ` : ''}
 
       </div>
@@ -239,6 +274,7 @@ export class RestockView {
     }
 
     leftIsland.querySelector('#btn-submit-restock')?.addEventListener('click', () => {
+      if (!db.getCurrentVolunteer()?.isAdmin) return;
       if (!selectedProduct) return;
       const newPrice = parseFloat((leftIsland.querySelector('#restock-new-price') as HTMLInputElement)?.value) || undefined;
       const newCost = parseFloat((leftIsland.querySelector('#restock-new-cost') as HTMLInputElement)?.value) || undefined;

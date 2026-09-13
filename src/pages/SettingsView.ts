@@ -5,6 +5,7 @@ export class SettingsView {
   private feedbackMessage: { text: string; type: 'success' | 'error' } | null = null;
   private editingPasswordUserId: string | null = null;
   private editingNameUserId: string | null = null;
+  private revealedPasswords: Set<string> = new Set();
 
   public render(): HTMLElement {
     const container = document.createElement('div');
@@ -276,7 +277,20 @@ export class SettingsView {
                           <div class="flex items-center gap-2 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                             <span>${v.role}</span>
                             <span>•</span>
-                            <span class="font-mono text-[11px] text-slate-400">Mot de passe: <span class="font-bold tracking-widest text-slate-500">••••••••</span></span>
+                            <div class="flex items-center gap-1.5 font-mono text-[11px] text-slate-400">
+                              <span>Mot de passe:</span>
+                              <span class="${this.revealedPasswords.has(v.id) ? 'text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20 font-mono text-xs' : 'font-bold tracking-widest text-slate-500'}">
+                                ${this.revealedPasswords.has(v.id) ? v.password : '••••••••'}
+                              </span>
+                              <button 
+                                type="button" 
+                                data-toggle-reveal-pwd="${v.id}"
+                                class="p-1 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                                title="${this.revealedPasswords.has(v.id) ? 'Masquer le mot de passe' : 'Afficher le mot de passe en clair'}"
+                              >
+                                ${this.revealedPasswords.has(v.id) ? Icons.eyeOff('w-3.5 h-3.5') : Icons.eye('w-3.5 h-3.5')}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -312,15 +326,15 @@ export class SettingsView {
                     <div class="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
                       
                       <div class="flex items-center gap-2">
-                        <!-- Bouton modifier le blaze / nom -->
+                        <!-- Bouton modifier le nom / pseudo -->
                         <button 
                           type="button" 
                           data-toggle-name-edit="${v.id}"
                           class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                          title="Modifier le nom affiché (blaze) pour la caisse et le classement Pac-Man"
+                          title="Modifier le nom affiché pour la caisse et le classement Pac-Man"
                         >
                           ${Icons.userCheck('w-3.5 h-3.5 text-slate-500')}
-                          <span>${isEditingName ? 'Annuler' : 'Modifier blaze'}</span>
+                          <span>${isEditingName ? 'Annuler' : 'Modifier le nom'}</span>
                         </button>
 
                         <!-- Bouton modifier le mot de passe -->
@@ -388,13 +402,13 @@ export class SettingsView {
                       </form>
                     ` : ''}
 
-                    <!-- Sous-formulaire de modification de blaze/nom si actif -->
+                    <!-- Sous-formulaire de modification de nom si actif -->
                     ${isEditingName ? `
                       <form data-form-edit-name="${v.id}" class="mt-2 p-3 rounded-xl bg-orange-500/10 dark:bg-orange-950/30 border border-orange-500/30 flex items-center gap-2 animate-enter">
                         <input 
                           type="text" 
                           value="${v.name}" 
-                          placeholder="Nouveau nom / blaze pour la caisse et le classement" 
+                          placeholder="Nouveau nom / prénom (ex: Adrien Martin, Sarah...)" 
                           required
                           data-input-new-name="${v.id}"
                           class="flex-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-orange-500"
@@ -403,7 +417,7 @@ export class SettingsView {
                           type="submit" 
                           class="px-3.5 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-xs cursor-pointer flex-shrink-0"
                         >
-                          Enregistrer le blaze
+                          Enregistrer le nom
                         </button>
                       </form>
                     ` : ''}
@@ -524,7 +538,21 @@ export class SettingsView {
       });
     });
 
-    // Toggle édition du nom/blaze
+    // Afficher / masquer mot de passe en clair
+    container.querySelectorAll('[data-toggle-reveal-pwd]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = (e.currentTarget as HTMLElement).getAttribute('data-toggle-reveal-pwd');
+        if (!id) return;
+        if (this.revealedPasswords.has(id)) {
+          this.revealedPasswords.delete(id);
+        } else {
+          this.revealedPasswords.add(id);
+        }
+        this.refresh(container);
+      });
+    });
+
+    // Toggle édition du nom
     container.querySelectorAll('[data-toggle-name-edit]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const id = (e.currentTarget as HTMLElement).getAttribute('data-toggle-name-edit');
@@ -534,7 +562,7 @@ export class SettingsView {
       });
     });
 
-    // Formulaire d'édition du nom/blaze
+    // Formulaire d'édition du nom d'affichage
     container.querySelectorAll('[data-form-edit-name]').forEach(form => {
       form.addEventListener('submit', (e) => {
         e.preventDefault();
