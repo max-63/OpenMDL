@@ -25,7 +25,7 @@ export class UpdaterService {
   private static instance: UpdaterService;
   private state: UpdateState = {
     status: 'idle',
-    currentVersion: '1.0.2',
+    currentVersion: '1.0.3',
     progressPercent: 0,
     downloadedBytes: 0,
     totalBytes: 0
