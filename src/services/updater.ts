@@ -25,7 +25,7 @@ export class UpdaterService {
   private static instance: UpdaterService;
   private state: UpdateState = {
     status: 'idle',
-    currentVersion: '1.0.1',
+    currentVersion: '1.0.2',
     progressPercent: 0,
     downloadedBytes: 0,
     totalBytes: 0
@@ -74,11 +74,24 @@ export class UpdaterService {
         this.setState({ status: 'up-to-date' });
       }
     } catch (err: any) {
-      console.warn('Erreur vérification mise à jour:', err);
-      this.setState({
-        status: 'error',
-        errorMessage: err?.message || 'Impossible de vérifier les mises à jour (vérifiez la connexion Internet).'
-      });
+      console.warn('Vérification des mises à jour:', err);
+      const msg = String(err?.message || '').toLowerCase();
+      // Si l'endpoint GitHub renvoie un code d'erreur (ex: 404 car aucune release n'a encore de latest.json),
+      // cela signifie qu'aucune mise à jour n'est disponible.
+      if (
+        msg.includes('status code') ||
+        msg.includes('404') ||
+        msg.includes('not found') ||
+        msg.includes('successful status')
+      ) {
+        this.activeUpdate = null;
+        this.setState({ status: 'up-to-date' });
+      } else {
+        this.setState({
+          status: 'error',
+          errorMessage: err?.message || 'Impossible de vérifier les mises à jour (vérifiez la connexion Internet).'
+        });
+      }
     }
   }
 

@@ -229,7 +229,7 @@ export class SettingsView {
                 <span>Mise à Jour du Logiciel</span>
               </div>
               <span class="text-[11px] font-mono font-black px-2 py-0.5 rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-                v1.0.1
+                v${escapeHtml(updater.getState().currentVersion)}
               </span>
             </div>
 
