@@ -1,6 +1,7 @@
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
 import { Product } from '../types';
+import { escapeHtml } from '../utils/security';
 
 export class RestockView {
   private onRestockDone: () => void;
@@ -76,10 +77,14 @@ export class RestockView {
               <div class="col-span-full py-8 text-center text-xs text-slate-400 font-sans">
                 Aucun article au catalogue. Rendez-vous dans "Catalogue & Tarifs" pour créer vos premiers produits.
               </div>
-            ` : products.map(p => `
+            ` : products.map(p => {
+              const safeId = escapeHtml(p.id);
+              const safeName = escapeHtml(p.name);
+              const safeImg = escapeHtml(p.imageUrl);
+              return `
               <button 
                 type="button"
-                data-select-prod="${p.id}" 
+                data-select-prod="${safeId}" 
                 class="p-2.5 rounded-2xl border text-left flex items-center gap-2.5 transition-all ${
                   p.id === selectedProduct?.id
                     ? 'border-orange-500 bg-orange-500/10 text-orange-950 dark:text-orange-200 ring-2 ring-orange-500/30 shadow-sm'
@@ -87,14 +92,14 @@ export class RestockView {
                 }"
               >
                 <div class="w-9 h-9 rounded-xl bg-slate-200 dark:bg-slate-700 overflow-hidden flex-shrink-0">
-                  <img src="${p.imageUrl}" alt="${p.name}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
+                  <img src="${safeImg}" alt="${safeName}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
                 </div>
                 <div class="min-w-0 flex-1">
-                  <div class="text-xs font-bold truncate">${p.name}</div>
+                  <div class="text-xs font-bold truncate">${safeName}</div>
                   <div class="text-[11px] font-mono-nums font-semibold text-slate-400">${p.stock} u en stock</div>
                 </div>
               </button>
-            `).join('')}
+            `}).join('')}
           </div>
         </div>
 
@@ -103,11 +108,11 @@ export class RestockView {
           <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 flex items-center justify-between shadow-xs">
             <div class="flex items-center gap-3">
               <div class="w-12 h-12 rounded-xl bg-slate-200 dark:bg-slate-700 overflow-hidden flex-shrink-0">
-                <img src="${selectedProduct.imageUrl}" alt="${selectedProduct.name}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
+                <img src="${escapeHtml(selectedProduct.imageUrl)}" alt="${escapeHtml(selectedProduct.name)}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
               </div>
               <div>
                 <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Article sélectionné</span>
-                <div class="font-extrabold text-sm text-slate-900 dark:text-white">${selectedProduct.name}</div>
+                <div class="font-extrabold text-sm text-slate-900 dark:text-white">${escapeHtml(selectedProduct.name)}</div>
                 <div class="text-xs font-mono-nums font-semibold text-slate-500">Stock actuel : ${selectedProduct.stock} unités</div>
               </div>
             </div>
@@ -226,7 +231,7 @@ export class RestockView {
         ` : restocks.slice(0, 15).map(r => `
           <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-800 space-y-1 hover:border-orange-400 dark:hover:border-slate-700 transition-colors shadow-xs">
             <div class="flex items-center justify-between font-sans font-bold text-slate-900 dark:text-slate-100">
-              <span class="truncate">${r.productName}</span>
+              <span class="truncate">${escapeHtml(r.productName)}</span>
               <span class="text-emerald-600 dark:text-emerald-400 font-mono-nums font-black text-xs">+${r.quantityAdded} u</span>
             </div>
             <div class="flex items-center justify-between text-[11px] text-slate-400">

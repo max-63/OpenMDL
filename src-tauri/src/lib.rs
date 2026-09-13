@@ -19,8 +19,17 @@ fn save_backup(app_handle: tauri::AppHandle, tag: String, data: String) -> Resul
         return Err(format!("Impossible de créer le dossier backups: {}", e));
     }
 
+    // Assainissement strict du tag pour neutraliser tout risque de Path Traversal
+    let mut safe_tag: String = tag
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    if safe_tag.is_empty() {
+        safe_tag = "export".to_string();
+    }
+
     let timestamp = chrono_free_timestamp();
-    let filename = format!("backup_{}_{}.json", tag, timestamp);
+    let filename = format!("backup_{}_{}.json", safe_tag, timestamp);
     let file_path = backups_dir.join(&filename);
 
     if let Err(e) = fs::write(&file_path, data) {

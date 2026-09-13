@@ -1,5 +1,6 @@
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
+import { escapeHtml } from '../utils/security';
 
 export class SettingsView {
   private feedbackMessage: { text: string; type: 'success' | 'error' } | null = null;
@@ -262,10 +263,10 @@ export class SettingsView {
                         <div class="min-w-0">
                           <div class="flex items-center gap-2 flex-wrap">
                             <span class="font-extrabold text-sm text-slate-900 dark:text-white truncate">
-                              ${v.name}
+                              ${escapeHtml(v.name)}
                             </span>
                             <span class="font-mono text-xs text-slate-400">
-                              @${v.username}
+                              @${escapeHtml(v.username)}
                             </span>
                             ${isCurrent ? `
                               <span class="px-2 py-0.5 rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px] font-bold border border-orange-500/20">
@@ -275,12 +276,12 @@ export class SettingsView {
                           </div>
                           
                           <div class="flex items-center gap-2 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                            <span>${v.role}</span>
+                            <span>${escapeHtml(v.role)}</span>
                             <span>•</span>
                             <div class="flex items-center gap-1.5 font-mono text-[11px] text-slate-400">
                               <span>Mot de passe:</span>
                               <span class="${this.revealedPasswords.has(v.id) ? 'text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20 font-mono text-xs' : 'font-bold tracking-widest text-slate-500'}">
-                                ${this.revealedPasswords.has(v.id) ? v.password : '••••••••'}
+                                ${this.revealedPasswords.has(v.id) ? escapeHtml(v.password) : '••••••••'}
                               </span>
                               <button 
                                 type="button" 
@@ -407,7 +408,7 @@ export class SettingsView {
                       <form data-form-edit-name="${v.id}" class="mt-2 p-3 rounded-xl bg-orange-500/10 dark:bg-orange-950/30 border border-orange-500/30 flex items-center gap-2 animate-enter">
                         <input 
                           type="text" 
-                          value="${v.name}" 
+                          value="${escapeHtml(v.name)}" 
                           placeholder="Nouveau nom / prénom (ex: Adrien Martin, Sarah...)" 
                           required
                           data-input-new-name="${v.id}"

@@ -1,5 +1,6 @@
 import { Product } from '../types';
 import { Icons } from './Icons';
+import { escapeHtml } from '../utils/security';
 
 export class ProductCardComponent {
   public static render(
@@ -11,6 +12,9 @@ export class ProductCardComponent {
     const card = document.createElement('div');
     const isOutOfStock = product.stock <= 0;
     const isLowStock = product.stock > 0 && product.stock <= product.minStockAlert;
+    const safeName = escapeHtml(product.name);
+    const safeCategory = escapeHtml(product.category);
+    const safeImageUrl = escapeHtml(product.imageUrl);
 
     card.className = `group relative flex flex-col justify-between rounded-2xl bg-white dark:bg-slate-900 border transition-all duration-200 overflow-hidden shadow-xs hover:shadow-md ${
       isOutOfStock
@@ -34,14 +38,14 @@ export class ProductCardComponent {
         <!-- Image Produit bien arrondie -->
         <div class="w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 relative flex items-center justify-center border border-slate-200/60 dark:border-slate-700/50">
           <img 
-            src="${product.imageUrl}" 
-            alt="${product.name}" 
+            src="${safeImageUrl}" 
+            alt="${safeName}" 
             loading="lazy" 
             class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
           />
           <div class="hidden w-full h-full items-center justify-center text-slate-400 font-bold text-xs p-2 text-center">
-            ${product.name}
+            ${safeName}
           </div>
 
           <!-- Pastille de stock arrondie et colorée -->
@@ -60,11 +64,11 @@ export class ProductCardComponent {
         <div>
           <div class="flex items-center justify-between gap-1 mb-1">
             <span class="text-[10px] font-bold px-2 py-0.5 rounded-full border ${catBadgeColor} uppercase tracking-wider">
-              ${product.category}
+              ${safeCategory}
             </span>
           </div>
-          <h3 class="font-bold text-sm text-slate-900 dark:text-white truncate leading-snug" title="${product.name}">
-            ${product.name}
+          <h3 class="font-bold text-sm text-slate-900 dark:text-white truncate leading-snug" title="${safeName}">
+            ${safeName}
           </h3>
           <div class="flex items-baseline justify-between mt-1.5">
             <span class="font-mono-nums font-extrabold text-base text-orange-600 dark:text-orange-400">

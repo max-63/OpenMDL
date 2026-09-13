@@ -1,5 +1,6 @@
 import { db } from '../services/db';
 import { Icons } from './Icons';
+import { escapeHtml } from '../utils/security';
 
 export class SnakeModalComponent {
   private container: HTMLElement | null = null;
@@ -77,6 +78,8 @@ export class SnakeModalComponent {
   private setupListeners(): void {
     // Écoute des scores remontés par la passerelle pacman.js
     this.messageListener = (event: MessageEvent) => {
+      // Sécurité : vérifier que le message provient bien de l'iframe locale Pac-Man
+      if (this.iframeEl && event.source !== this.iframeEl.contentWindow) return;
       if (!event.data || typeof event.data !== 'object') return;
 
       if (event.data.type === 'PACMAN_SCORE_UPDATE') {
@@ -323,7 +326,7 @@ export class SnakeModalComponent {
                           #${idx + 1}
                         </span>
                         <div>
-                          <div class="font-black text-xs text-white">${entry.playerName}</div>
+                          <div class="font-black text-xs text-white">${escapeHtml(entry.playerName)}</div>
                           <div class="text-[10px] text-slate-400 font-mono">
                             ${new Date(entry.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                           </div>

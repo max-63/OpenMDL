@@ -2,6 +2,7 @@ import { CartItem, PaymentMethod } from '../types';
 import { db } from '../services/db';
 import { Icons } from './Icons';
 import { SumUpService } from '../services/sumup';
+import { escapeHtml } from '../utils/security';
 
 export class CheckoutModalComponent {
   private container: HTMLElement | null = null;
@@ -456,7 +457,7 @@ export class CheckoutModalComponent {
                     <div>
                       <p class="text-sm font-black text-rose-600 dark:text-rose-400">Paiement Refusé ou Interrompu</p>
                       <p class="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-xs mx-auto leading-relaxed">
-                        ${this.tpeErrorMessage || 'La transaction a été refusée ou annulée sur le terminal.'}
+                        ${escapeHtml(this.tpeErrorMessage || 'La transaction a été refusée ou annulée sur le terminal.')}
                       </p>
                     </div>
 

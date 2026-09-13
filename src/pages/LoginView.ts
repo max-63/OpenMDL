@@ -1,5 +1,6 @@
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
+import { escapeHtml } from '../utils/security';
 
 export class LoginView {
   private onLoginSuccess: () => void;
@@ -65,7 +66,7 @@ export class LoginView {
           <!-- Message d'erreur dynamique -->
           <div id="login-error-container" class="${this.errorMessage ? 'block' : 'hidden'} p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-2.5">
             ${Icons.alertTriangle('w-4 h-4 flex-shrink-0')}
-            <span id="login-error-text">${this.errorMessage || ''}</span>
+            <span id="login-error-text">${escapeHtml(this.errorMessage || '')}</span>
           </div>
 
           <!-- Formulaire de Connexion -->
@@ -86,7 +87,7 @@ export class LoginView {
                   autocomplete="username"
                   required
                   placeholder="ex: admin ou jeremy"
-                  value="${this.selectedUsername}"
+                  value="${escapeHtml(this.selectedUsername)}"
                   class="w-full pl-10 pr-3.5 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-orange-500 dark:focus:border-orange-500 text-slate-900 dark:text-white text-sm font-medium outline-none transition-all placeholder:text-slate-400"
                 />
               </div>
@@ -109,7 +110,7 @@ export class LoginView {
                   autocomplete="current-password"
                   required
                   placeholder="Mot de passe du compte"
-                  value="${this.passwordValue}"
+                  value="${escapeHtml(this.passwordValue)}"
                   class="w-full pl-10 pr-11 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-orange-500 dark:focus:border-orange-500 text-slate-900 dark:text-white text-sm font-medium outline-none transition-all placeholder:text-slate-400 font-mono"
                 />
                 <button 
@@ -144,24 +145,26 @@ export class LoginView {
             <div class="space-y-1.5" id="quick-volunteers-list">
               ${volunteers.map(v => {
                 const isSuspended = !!v.isSuspended;
+                const safeUser = escapeHtml(v.username);
+                const safeName = escapeHtml(v.name);
                 return `
                   <button 
                     type="button"
-                    data-fill-user="${v.username}"
+                    data-fill-user="${safeUser}"
                     class="w-full p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:border-orange-400 dark:hover:border-orange-500/50 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-orange-50/50 dark:hover:bg-slate-800 transition-all flex items-center justify-between text-left group cursor-pointer ${
                       isSuspended ? 'opacity-50 grayscale' : ''
                     }"
                   >
                     <div class="flex items-center gap-2.5 min-w-0">
                       <div class="w-7 h-7 rounded-xl flex items-center justify-center text-white font-black text-xs flex-shrink-0" style="background-color: ${v.avatarColor}">
-                        ${v.name.charAt(0)}
+                        ${safeName.charAt(0)}
                       </div>
                       <div class="truncate">
                         <div class="font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors truncate">
-                          ${v.name}
+                          ${safeName}
                         </div>
                         <div class="text-[10px] text-slate-400 font-mono truncate">
-                          @${v.username}
+                          @${safeUser}
                         </div>
                       </div>
                     </div>

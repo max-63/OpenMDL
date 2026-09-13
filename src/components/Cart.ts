@@ -1,5 +1,6 @@
 import { CartItem, Product } from '../types';
 import { Icons } from './Icons';
+import { escapeHtml } from '../utils/security';
 
 export class CartComponent {
   private items: CartItem[] = [];
@@ -98,9 +99,12 @@ export class CartComponent {
 
         const itemSubtotal = (item.product.price * item.quantity).toFixed(2);
 
+        const safeName = escapeHtml(item.product.name);
+        const safeId = escapeHtml(item.product.id);
+
         itemRow.innerHTML = `
           <div class="flex-1 min-w-0 pr-3">
-            <h4 class="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">${item.product.name}</h4>
+            <h4 class="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">${safeName}</h4>
             <div class="font-mono-nums text-[11px] text-slate-400 mt-0.5">
               ${item.product.price.toFixed(2)} € /u
             </div>
@@ -108,11 +112,11 @@ export class CartComponent {
           
           <div class="flex items-center gap-2.5">
             <div class="flex items-center rounded-lg bg-slate-100 dark:bg-slate-700/80 p-0.5 border border-slate-200 dark:border-slate-600">
-              <button data-action="minus" data-id="${item.product.id}" class="p-1 hover:bg-white dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded transition-colors active:scale-95" title="Diminuer">
+              <button data-action="minus" data-id="${safeId}" class="p-1 hover:bg-white dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded transition-colors active:scale-95" title="Diminuer">
                 ${Icons.minus('w-3.5 h-3.5')}
               </button>
               <span class="px-2 text-xs font-mono-nums font-black text-slate-900 dark:text-white min-w-[22px] text-center">${item.quantity}</span>
-              <button data-action="plus" data-id="${item.product.id}" class="p-1 hover:bg-white dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded transition-colors active:scale-95 ${item.quantity >= item.product.stock ? 'opacity-30 cursor-not-allowed' : ''}" title="Augmenter">
+              <button data-action="plus" data-id="${safeId}" class="p-1 hover:bg-white dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded transition-colors active:scale-95 ${item.quantity >= item.product.stock ? 'opacity-30 cursor-not-allowed' : ''}" title="Augmenter">
                 ${Icons.plus('w-3.5 h-3.5')}
               </button>
             </div>

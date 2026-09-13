@@ -1,6 +1,7 @@
 import { Product } from '../types';
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
+import { escapeHtml } from '../utils/security';
 
 export class CatalogView {
   private onUpdate: () => void;
@@ -56,7 +57,7 @@ export class CatalogView {
             type="text" 
             id="catalog-search-input" 
             placeholder="Filtrer un article..." 
-            value="${this.catalogSearchQuery}"
+            value="${escapeHtml(this.catalogSearchQuery)}"
             class="w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 transition-all font-medium"
           />
           <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
@@ -137,7 +138,7 @@ export class CatalogView {
               ${Icons.package('w-6 h-6')}
             </div>
             <div class="text-sm font-extrabold text-slate-700 dark:text-slate-300">
-              ${this.catalogSearchQuery ? `Aucun article ne correspond à "${this.catalogSearchQuery}"` : 'Votre catalogue est actuellement vide'}
+              ${this.catalogSearchQuery ? `Aucun article ne correspond à "${escapeHtml(this.catalogSearchQuery)}"` : 'Votre catalogue est actuellement vide'}
             </div>
             <p class="text-xs text-slate-400 max-w-sm">
               ${this.catalogSearchQuery ? 'Essayez un autre mot-clé ou réinitialisez les filtres.' : 'Cliquez sur le bouton "Ajouter un article" ci-dessus pour enregistrer vos boissons, snacks et friandises.'}
@@ -161,19 +162,19 @@ export class CatalogView {
               <!-- Identité de l'article -->
               <div class="flex items-center gap-3.5 min-w-[240px]">
                 <div class="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800 overflow-hidden flex-shrink-0 shadow-xs border border-slate-200/70 dark:border-slate-700/70">
-                  <img src="${p.imageUrl}" alt="${p.name}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
+                  <img src="${escapeHtml(p.imageUrl)}" alt="${escapeHtml(p.name)}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
                 </div>
                 <div class="min-w-0">
                   <div class="flex items-center gap-2">
-                    <h3 class="font-extrabold text-sm text-slate-900 dark:text-white truncate">${p.name}</h3>
+                    <h3 class="font-extrabold text-sm text-slate-900 dark:text-white truncate">${escapeHtml(p.name)}</h3>
                     <span class="text-[9px] font-bold px-2 py-0.5 rounded-full border ${catBadge} uppercase tracking-wider">
-                      ${p.category}
+                      ${escapeHtml(p.category)}
                     </span>
                   </div>
                   <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
                     <span>Alerte stock : ${p.minStockAlert} u</span>
                     <span>•</span>
-                    <span class="font-mono-nums">Réf: ${p.id}</span>
+                    <span class="font-mono-nums">Réf: ${escapeHtml(p.id)}</span>
                   </div>
                 </div>
               </div>
@@ -301,7 +302,7 @@ export class CatalogView {
         <form id="product-form" class="p-6 space-y-4 text-xs">
           <div>
             <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Nom de l'article</label>
-            <input type="text" id="prod-name" required value="${product ? product.name : ''}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 font-medium transition-all" placeholder="Ex: Ice Tea Pêche 33cl" />
+            <input type="text" id="prod-name" required value="${product ? escapeHtml(product.name) : ''}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 font-medium transition-all" placeholder="Ex: Ice Tea Pêche 33cl" />
           </div>
 
           <div class="grid grid-cols-2 gap-3">

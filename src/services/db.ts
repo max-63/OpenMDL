@@ -19,7 +19,7 @@ const STORAGE_KEYS = {
 export interface ActivityLog {
   id: string;
   timestamp: string;
-  type: 'INFO' | 'SALE' | 'RESTOCK' | 'SESSION' | 'BACKUP' | 'WARNING';
+  type: 'INFO' | 'SALE' | 'RESTOCK' | 'SESSION' | 'BACKUP' | 'WARNING' | 'SECURITY';
   message: string;
   author: string;
 }
@@ -256,6 +256,7 @@ class DatabaseService {
   private activeSession: Session | null = null;
   private currentVolunteer: Volunteer | null = null;
   private listeners: Set<() => void> = new Set();
+  private loginAttempts: Map<string, { count: number; lockedUntil?: number }> = new Map();
 
   constructor() {
     this.loadAll();
@@ -470,6 +471,17 @@ class DatabaseService {
       return { success: false, message: 'Veuillez renseigner votre identifiant et votre mot de passe' };
     }
 
+    // Protection anti force-brute (blocage 30s après 5 échecs consécutifs)
+    const now = Date.now();
+    const attempt = this.loginAttempts.get(cleanUsername);
+    if (attempt && attempt.lockedUntil && attempt.lockedUntil > now) {
+      const waitSeconds = Math.ceil((attempt.lockedUntil - now) / 1000);
+      return {
+        success: false,
+        message: `Compte temporairement verrouillé suite à trop de tentatives infructueuses. Réessayez dans ${waitSeconds} secondes.`
+      };
+    }
+
     const volunteer = this.volunteers.find(v => v.username.toLowerCase() === cleanUsername);
     if (!volunteer) {
       return { success: false, message: 'Identifiant introuvable. Demandez la création de votre compte au délégué CVL.' };
@@ -480,8 +492,28 @@ class DatabaseService {
     }
 
     if (volunteer.password !== cleanPassword) {
-      return { success: false, message: 'Mot de passe incorrect.' };
+      const currentCount = (attempt?.count || 0) + 1;
+      if (currentCount >= 5) {
+        this.loginAttempts.set(cleanUsername, {
+          count: currentCount,
+          lockedUntil: now + 30_000
+        });
+        this.logActivity('SECURITY', `Compte ${cleanUsername} verrouillé pendant 30s après 5 échecs consécutifs.`);
+        return {
+          success: false,
+          message: 'Trop de tentatives échouées. Votre compte est bloqué pendant 30 secondes par sécurité.'
+        };
+      } else {
+        this.loginAttempts.set(cleanUsername, { count: currentCount });
+        return {
+          success: false,
+          message: `Mot de passe incorrect. (${5 - currentCount} tentative(s) restante(s))`
+        };
+      }
     }
+
+    // Réinitialisation du compteur après connexion réussie
+    this.loginAttempts.delete(cleanUsername);
 
     const loginOk = this.login(volunteer.id);
     if (!loginOk) {
