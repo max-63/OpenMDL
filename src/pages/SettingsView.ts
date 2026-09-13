@@ -1,6 +1,7 @@
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
 import { escapeHtml } from '../utils/security';
+import { updater, UpdateState } from '../services/updater';
 
 export class SettingsView {
   private feedbackMessage: { text: string; type: 'success' | 'error' } | null = null;
@@ -217,6 +218,27 @@ export class SettingsView {
                 </div>
                 <span class="text-[10px] uppercase font-bold text-sky-500">Screenshots</span>
               </button>
+            </div>
+          </div>
+
+          <!-- Carte Mise à Jour du Logiciel (Tauri Auto-Updater) -->
+          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4" id="card-software-update">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                ${Icons.refresh('w-4 h-4 text-orange-500')}
+                <span>Mise à Jour du Logiciel</span>
+              </div>
+              <span class="text-[11px] font-mono font-black px-2 py-0.5 rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                v1.0.1
+              </span>
+            </div>
+
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+              Vérifiez la disponibilité de nouvelles versions, téléchargez et appliquez automatiquement les mises à jour signées depuis GitHub.
+            </p>
+
+            <div id="updater-state-container" class="space-y-3 pt-1">
+              <!-- Rendu dynamique géré par renderUpdaterSection -->
             </div>
           </div>
         </div>
@@ -604,6 +626,161 @@ export class SettingsView {
         };
         this.refresh(container);
       }
+    });
+
+    // Gestion de la section Mise à jour logicielle (Tauri Auto-Updater)
+    const cardSoftwareUpdate = container.querySelector('#card-software-update') as HTMLElement;
+    if (cardSoftwareUpdate) {
+      updater.subscribe((state) => {
+        this.renderUpdaterSection(cardSoftwareUpdate, state);
+      });
+    }
+  }
+
+  private renderUpdaterSection(cardContainer: HTMLElement, state: UpdateState): void {
+    const container = cardContainer.querySelector('#updater-state-container');
+    if (!container) return;
+
+    if (state.status === 'idle') {
+      container.innerHTML = `
+        <button 
+          type="button" 
+          id="btn-check-update"
+          class="w-full py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-500 active:scale-[0.98] text-white font-extrabold text-xs tracking-wide shadow-md shadow-orange-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+        >
+          ${Icons.refresh('w-4 h-4')}
+          <span>Rechercher une mise à jour</span>
+        </button>
+      `;
+    } else if (state.status === 'checking') {
+      container.innerHTML = `
+        <div class="py-3 px-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2.5 text-xs font-bold text-slate-600 dark:text-slate-300">
+          <span class="animate-spin text-orange-500 inline-block">${Icons.refresh('w-4 h-4')}</span>
+          <span>Recherche des versions sur GitHub...</span>
+        </div>
+      `;
+    } else if (state.status === 'up-to-date') {
+      container.innerHTML = `
+        <div class="space-y-2.5 animate-enter">
+          <div class="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2.5">
+            ${Icons.check('w-4 h-4 flex-shrink-0')}
+            <span>OpenMDL est à jour (v${escapeHtml(state.currentVersion)})</span>
+          </div>
+          <button 
+            type="button" 
+            id="btn-check-update"
+            class="w-full py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            ${Icons.refresh('w-3.5 h-3.5')}
+            <span>Revérifier</span>
+          </button>
+        </div>
+      `;
+    } else if (state.status === 'available') {
+      container.innerHTML = `
+        <div class="space-y-3 p-4 rounded-2xl bg-orange-500/10 border border-orange-500/30 animate-enter">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold text-orange-600 dark:text-orange-400">
+              Nouvelle version disponible !
+            </span>
+            <span class="font-mono font-black text-xs px-2 py-0.5 rounded-md bg-orange-500 text-white shadow-xs">
+              v${escapeHtml(state.availableVersion || '')}
+            </span>
+          </div>
+          ${state.releaseNotes ? `
+            <p class="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-3 bg-white/70 dark:bg-slate-900/70 p-2.5 rounded-xl border border-orange-500/20 font-sans leading-relaxed">
+              ${escapeHtml(state.releaseNotes)}
+            </p>
+          ` : ''}
+          <button 
+            type="button" 
+            id="btn-download-update"
+            class="w-full py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-500 active:scale-[0.98] text-white font-extrabold text-xs shadow-md shadow-orange-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            ${Icons.download('w-4 h-4')}
+            <span>Télécharger et installer la mise à jour</span>
+          </button>
+        </div>
+      `;
+    } else if (state.status === 'downloading') {
+      const mbDownloaded = (state.downloadedBytes / (1024 * 1024)).toFixed(1);
+      const mbTotal = state.totalBytes > 0 ? (state.totalBytes / (1024 * 1024)).toFixed(1) : '?';
+      container.innerHTML = `
+        <div class="space-y-2.5 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 animate-enter">
+          <div class="flex items-center justify-between text-xs font-extrabold text-slate-800 dark:text-slate-200">
+            <div class="flex items-center gap-2">
+              <span class="animate-spin text-orange-500 inline-block">${Icons.refresh('w-3.5 h-3.5')}</span>
+              <span>Téléchargement en cours...</span>
+            </div>
+            <span class="font-mono text-orange-600 dark:text-orange-400 font-black">${state.progressPercent}%</span>
+          </div>
+
+          <!-- Barre de progression stylisée -->
+          <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative shadow-inner">
+            <div 
+              class="h-full bg-gradient-to-r from-orange-500 to-amber-500 rounded-full transition-all duration-300 ease-out relative overflow-hidden" 
+              style="width: ${state.progressPercent}%;"
+            >
+              <div class="absolute inset-0 bg-white/20 animate-pulse"></div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>${mbDownloaded} Mo / ${mbTotal} Mo</span>
+            <span>Vérification cryptographique...</span>
+          </div>
+        </div>
+      `;
+    } else if (state.status === 'ready-to-restart') {
+      container.innerHTML = `
+        <div class="space-y-3 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 animate-enter">
+          <div class="flex items-center gap-2 text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
+            ${Icons.check('w-4 h-4')}
+            <span>Mise à jour installée avec succès !</span>
+          </div>
+          <p class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+            Redémarrez l'application pour appliquer immédiatement la nouvelle version.
+          </p>
+          <button 
+            type="button" 
+            id="btn-restart-app"
+            class="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-extrabold text-xs shadow-md shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            ${Icons.refresh('w-4 h-4')}
+            <span>Redémarrer l'application maintenant</span>
+          </button>
+        </div>
+      `;
+    } else if (state.status === 'error') {
+      container.innerHTML = `
+        <div class="space-y-2.5 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/25 animate-enter">
+          <div class="flex items-center gap-2 text-xs font-bold text-rose-600 dark:text-rose-400">
+            ${Icons.alertTriangle('w-4 h-4 flex-shrink-0')}
+            <span>${escapeHtml(state.errorMessage || 'Erreur lors de la recherche de mise à jour.')}</span>
+          </div>
+          <button 
+            type="button" 
+            id="btn-check-update"
+            class="w-full py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs shadow-rose-600/20"
+          >
+            ${Icons.refresh('w-3.5 h-3.5')}
+            <span>Réessayer</span>
+          </button>
+        </div>
+      `;
+    }
+
+    // Attacher les écouteurs de la section mise à jour
+    container.querySelector('#btn-check-update')?.addEventListener('click', () => {
+      updater.checkForUpdates();
+    });
+
+    container.querySelector('#btn-download-update')?.addEventListener('click', () => {
+      updater.downloadAndApply();
+    });
+
+    container.querySelector('#btn-restart-app')?.addEventListener('click', () => {
+      updater.restartApp();
     });
   }
 

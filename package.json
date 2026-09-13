@@ -27,6 +27,8 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.11.0",
     "chart.js": "^4.5.1",
     "lucide": "^1.45.0"
   }

@@ -25,3 +25,8 @@ dist-ssr
 
 .agents
 dist-installers/*
+.private
+*.key
+*.pub
+src-tauri/.tauri/
+.tauri/

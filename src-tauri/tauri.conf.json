@@ -24,7 +24,15 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset:; font-src 'self' data:; connect-src 'self' https://api.sumup.com; frame-src 'self';"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset:; font-src 'self' data:; connect-src 'self' https://api.sumup.com https://github.com https://objects.githubusercontent.com; frame-src 'self';"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc3MjU5Nzk5NkI3OTZDRDYKUldUV2JIbHJtWmNsZHdkcjN6NFJtTnlkbDBTNlQ4SlNGeUd4WnZGK0MwakVWMk5STlJsbS9hanUK",
+      "endpoints": [
+        "https://github.com/max-63/OpenMDL/releases/latest/download/latest.json"
+      ]
     }
   },
   "bundle": {
