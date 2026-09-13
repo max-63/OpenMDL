@@ -15,9 +15,20 @@ jobs:
       matrix:
         include:
           - platform: 'ubuntu-22.04'
+            target: 'x86_64-unknown-linux-gnu'
+            args: ''
+          - platform: 'ubuntu-24.04-arm'
+            target: 'aarch64-unknown-linux-gnu'
             args: ''
           - platform: 'windows-latest'
+            target: 'x86_64-pc-windows-msvc'
             args: ''
+          - platform: 'windows-latest'
+            target: 'aarch64-pc-windows-msvc'
+            args: '--target aarch64-pc-windows-msvc'
+          - platform: 'macos-latest'
+            target: 'aarch64-apple-darwin'
+            args: '--target aarch64-apple-darwin'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -33,13 +44,13 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'windows-latest' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
+          targets: ${{ matrix.target }}
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev || sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
 
       - name: Install Node dependencies
         run: npm ci
@@ -57,9 +68,11 @@ jobs:
             Application moderne et intuitive pour la gestion de caisse, stocks, terminaux TPE SumUp et comptabilité de foyer lycéen.
 
             ### Téléchargements disponibles ci-dessous :
-            - **Windows (10 / 11)** : `.exe` (Installateur NSIS) ou `.msi`
-            - **Linux Mint / Ubuntu / Debian** : `.deb`
-            - **Linux Universel** : `.AppImage`
+            - **Windows PC (x64)** : `.exe` (Installateur NSIS) ou `.msi`
+            - **Windows ARM64 (Surface Pro X, Copilot+ PC Snapdragon)** : `.exe` (Installateur NSIS)
+            - **Linux PC (x86_64)** : `.deb` et `.AppImage`
+            - **Linux ARM64 (aarch64 / Raspberry Pi 4-5)** : `.deb` et `.AppImage`
+            - **macOS Apple Silicon (ARM64 M1 / M2 / M3 / M4)** : `.dmg`
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
