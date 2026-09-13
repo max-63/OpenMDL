@@ -75,21 +75,23 @@ export class UpdaterService {
       }
     } catch (err: any) {
       console.warn('Vérification des mises à jour:', err);
-      const msg = String(err?.message || '').toLowerCase();
-      // Si l'endpoint GitHub renvoie un code d'erreur (ex: 404 car aucune release n'a encore de latest.json),
+      const rawError = typeof err === 'string' ? err : (err?.message ? String(err.message) : String(err || ''));
+      const msg = rawError.toLowerCase();
+      // Si l'endpoint GitHub renvoie un code d'erreur (ex: 404 car latest.json n'est pas encore généré),
       // cela signifie qu'aucune mise à jour n'est disponible.
       if (
         msg.includes('status code') ||
         msg.includes('404') ||
         msg.includes('not found') ||
-        msg.includes('successful status')
+        msg.includes('successful status') ||
+        msg.includes('network error')
       ) {
         this.activeUpdate = null;
         this.setState({ status: 'up-to-date' });
       } else {
         this.setState({
           status: 'error',
-          errorMessage: err?.message || 'Impossible de vérifier les mises à jour (vérifiez la connexion Internet).'
+          errorMessage: rawError || 'Impossible de vérifier les mises à jour (vérifiez la connexion Internet).'
         });
       }
     }
