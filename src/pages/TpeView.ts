@@ -31,6 +31,14 @@ export class TpeView {
   private renderContent(container: HTMLElement): void {
     container.innerHTML = '';
 
+    const currentVolunteer = db.getCurrentVolunteer();
+    const isAdmin = currentVolunteer?.isAdmin ?? false;
+
+    // Si l'utilisateur n'est pas délégué / admin, fermer l'assistant de configuration
+    if (!isAdmin) {
+      this.showConnectModal = false;
+    }
+
     const tpe = db.getTpeSettings();
     const tpeLogs = db.getTpeLogs();
 
@@ -67,6 +75,13 @@ export class TpeView {
 
         <!-- Badges d'état du boîtier -->
         <div class="flex items-center gap-2">
+          ${!isAdmin ? `
+            <div class="px-3 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs flex items-center gap-1.5 border border-slate-200 dark:border-slate-700" title="Configuration réservée aux délégués CVL et administrateurs">
+              ${Icons.shield('w-3.5 h-3.5 text-slate-400')}
+              <span>Mode consultation</span>
+            </div>
+          ` : ''}
+
           <div class="px-3.5 py-2 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-center">
             <div class="text-[10px] font-bold text-slate-400 uppercase flex items-center justify-center gap-1">
               ${Icons.wifi('w-3 h-3 text-emerald-500')}
@@ -244,16 +259,36 @@ export class TpeView {
                 </div>
               </div>
 
-              <button 
-                id="btn-open-wizard"
-                class="px-3.5 py-1.5 rounded-xl ${tpe.isConnected
-        ? 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300'
-        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/25'
-      } font-bold text-xs transition-all cursor-pointer border border-slate-200 dark:border-slate-700 flex items-center gap-1.5"
-              >
-                ${Icons.settings('w-3.5 h-3.5')}
-                <span>${tpe.isConnected ? 'Reconfigurer le TPE' : 'Configurer le TPE (Assistant)'}</span>
-              </button>
+              ${isAdmin ? `
+                <div class="flex items-center gap-2">
+                  <button 
+                    id="btn-open-wizard"
+                    class="px-3.5 py-1.5 rounded-xl ${tpe.isConnected
+            ? 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300'
+            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/25'
+          } font-bold text-xs transition-all cursor-pointer border border-slate-200 dark:border-slate-700 flex items-center gap-1.5"
+                  >
+                    ${Icons.settings('w-3.5 h-3.5')}
+                    <span>${tpe.isConnected ? 'Reconfigurer le TPE' : 'Configurer le TPE (Assistant)'}</span>
+                  </button>
+
+                  ${tpe.isConnected ? `
+                    <button 
+                      id="btn-disconnect-tpe"
+                      class="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5"
+                      title="Déconnecter le terminal SumUp"
+                    >
+                      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      <span>Déconnecter</span>
+                    </button>
+                  ` : ''}
+                </div>
+              ` : `
+                <div class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-slate-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-200 dark:border-slate-700" title="Seuls les délégués CVL et administrateurs peuvent modifier ou déconnecter le TPE">
+                  ${Icons.lock('w-3.5 h-3.5 text-slate-400')}
+                  <span>Config réservée Délégué CVL</span>
+                </div>
+              `}
             </div>
 
             <!-- Résumé du compte lié -->
@@ -586,8 +621,23 @@ export class TpeView {
   }
 
   private attachEventListeners(container: HTMLElement): void {
-    // Bouton pour afficher/masquer le Wizard de configuration
+    const currentVolunteer = db.getCurrentVolunteer();
+    const isAdmin = currentVolunteer?.isAdmin ?? false;
+
+    // Déconnexion TPE (Réservé Délégué CVL / Admin)
+    container.querySelector('#btn-disconnect-tpe')?.addEventListener('click', () => {
+      if (!isAdmin) return;
+      if (confirm('Êtes-vous sûr de vouloir déconnecter le terminal SumUp ? Les paiements par carte au foyer seront suspendus.')) {
+        db.disconnectTpe();
+        this.showConnectModal = false;
+        this.renderContent(container);
+        this.onStateChange();
+      }
+    });
+
+    // Bouton pour afficher/masquer le Wizard de configuration (Réservé Délégué CVL / Admin)
     container.querySelector('#btn-open-wizard')?.addEventListener('click', () => {
+      if (!isAdmin) return;
       this.showConnectModal = !this.showConnectModal;
       this.wizardStep = 1;
       this.testApiResult = null;
@@ -655,8 +705,9 @@ export class TpeView {
       this.renderContent(container);
     });
 
-    // Enregistrer et terminer le wizard
+    // Enregistrer et terminer le wizard (Réservé Délégué CVL / Admin)
     container.querySelector('#btn-wizard-finish')?.addEventListener('click', () => {
+      if (!isAdmin) return;
       const keyInput = container.querySelector('#wizard-api-key-input') as HTMLInputElement;
       const key = keyInput ? keyInput.value.trim() : this.wizardApiKey;
 

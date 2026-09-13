@@ -680,6 +680,11 @@ class DatabaseService {
   }
 
   public updateTpeSettings(settings: Partial<TpeSettings>): void {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      console.warn('Action refusée: modification TPE réservée aux administrateurs.');
+      this.logActivity('SECURITY', `Tentative non autorisée de modification TPE par ${this.currentVolunteer.name}`);
+      return;
+    }
     this.tpeSettings = { ...this.tpeSettings, ...settings };
     this.saveTpeSettings();
     this.notify();
@@ -694,6 +699,11 @@ class DatabaseService {
     readerId?: string;
     readerModel?: 'SumUp Solo' | 'SumUp Air';
   }): void {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      console.warn('Action refusée: connexion TPE réservée aux administrateurs.');
+      this.logActivity('SECURITY', `Tentative non autorisée de connexion TPE par ${this.currentVolunteer.name}`);
+      return;
+    }
     this.tpeSettings = {
       ...this.tpeSettings,
       isConnected: true,
@@ -713,6 +723,11 @@ class DatabaseService {
   }
 
   public disconnectTpe(): void {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      console.warn('Action refusée: déconnexion TPE réservée aux administrateurs.');
+      this.logActivity('SECURITY', `Tentative non autorisée de déconnexion TPE par ${this.currentVolunteer.name}`);
+      return;
+    }
     this.tpeSettings.isConnected = false;
     this.tpeSettings.apiKey = '';
     this.tpeSettings.merchantCode = '';
