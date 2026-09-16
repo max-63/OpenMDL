@@ -82,7 +82,7 @@ export class StatsView {
     const selMonthNetProfit = selMonthRev - selMonthCost - selMonthSumupFees - selMonthPerksCost;
 
     // Vérification du droit à la conso gratuite du bénévole connecté
-    const perkEligibility = currentVolunteer ? db.canClaimVolunteerPerk(currentVolunteer.id) : { allowed: false, reason: '', salesToday: 0, requiredSales: 10 };
+    const perkEligibility = currentVolunteer ? db.canClaimVolunteerPerk(currentVolunteer.id) : { allowed: false, reason: '', salesToday: 0, requiredSales: 10, current: 0, required: 10, rule: 'items_sold' as const, enabled: false };
     const hasClaimedToday = currentVolunteer ? db.hasVolunteerClaimedPerkToday(currentVolunteer.id) : false;
 
     // Produit sélectionné pour l'historique linéaire des stocks
@@ -216,32 +216,40 @@ export class StatsView {
         <div class="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div class="space-y-1.5 flex-1">
             <div class="flex items-center justify-between max-w-md text-xs font-mono-nums">
-              <span class="font-sans font-bold text-slate-700 dark:text-slate-200">Progression des ventes aujourd'hui :</span>
-              <span class="font-black ${perkEligibility.salesToday >= 10 ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400'}">
-                ${perkEligibility.salesToday} / 10 ventes
+              <span class="font-sans font-bold text-slate-700 dark:text-slate-200">
+                ${perkEligibility.rule === 'always' ? 'Règle d\'obtention :' : perkEligibility.rule === 'sales_count' ? 'Progression des ventes :' : 'Progression des articles vendus :'}
+              </span>
+              <span class="font-black ${perkEligibility.allowed ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400'}">
+                ${perkEligibility.rule === 'always' ? 'Toujours offerte' : `${perkEligibility.current} / ${perkEligibility.required} ${perkEligibility.rule === 'sales_count' ? 'ventes' : 'articles'}`}
               </span>
             </div>
 
             <!-- Barre de progression -->
             <div class="w-full max-w-md h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
               <div 
-                class="h-full rounded-full transition-all duration-300 ${perkEligibility.salesToday >= 10 ? 'bg-emerald-500' : 'bg-orange-500'}"
-                style="width: ${Math.min(100, Math.round((perkEligibility.salesToday / 10) * 100))}%"
+                class="h-full rounded-full transition-all duration-300 ${perkEligibility.allowed ? 'bg-emerald-500' : 'bg-orange-500'}"
+                style="width: ${perkEligibility.rule === 'always' ? '100' : Math.min(100, Math.round((perkEligibility.current / (perkEligibility.required || 1)) * 100))}%"
               ></div>
             </div>
 
             <p class="text-[11px] text-slate-400">
-              ${hasClaimedToday 
+              ${!perkEligibility.enabled
+                ? 'La collation bénévole est actuellement désactivée dans les réglages.'
+                : hasClaimedToday 
                 ? 'Conso offerte du jour déjà accordée. Merci pour votre engagement sur cette permanence !'
                 : perkEligibility.allowed 
                 ? 'Seuil atteint ! Vous pouvez choisir et déclarer votre boisson ou snack offert ci-contre :' 
-                : `Encore ${10 - perkEligibility.salesToday} vente(s) à réaliser aujourd'hui pour débloquer votre boisson/snack gratuit.`}
+                : perkEligibility.reason || 'Objectif non atteint.'}
             </p>
           </div>
 
           <!-- Action de réclamation si éligible -->
           <div class="flex-shrink-0">
-            ${hasClaimedToday ? `
+            ${!perkEligibility.enabled ? `
+              <span class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-semibold border border-slate-200 dark:border-slate-700">
+                Collation désactivée
+              </span>
+            ` : hasClaimedToday ? `
               <span class="px-4 py-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold flex items-center gap-2">
                 ${Icons.check('w-4 h-4')}
                 <span>Conso du jour validée</span>
@@ -254,14 +262,14 @@ export class StatsView {
                   `).join('')}
                 </select>
 
-                <button id="btn-claim-perk" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm shadow-emerald-600/20 active:scale-95 transition-all">
+                <button id="btn-claim-perk" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer">
                   ${Icons.gift('w-4 h-4')}
                   <span>Valider ma conso offerte</span>
                 </button>
               </div>
             ` : `
               <button disabled class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-semibold cursor-not-allowed border border-slate-200 dark:border-slate-700">
-                Seuil 10 ventes requis
+                ${perkEligibility.rule === 'always' ? 'Non éligible' : `Seuil ${perkEligibility.required} ${perkEligibility.rule === 'sales_count' ? 'ventes' : 'articles'} requis`}
               </button>
             `}
           </div>

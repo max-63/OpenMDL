@@ -1,4 +1,4 @@
-import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore } from '../types';
+import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore, PerkSettings, PerkEligibilityRule } from '../types';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'openmdl_products',
@@ -10,10 +10,18 @@ const STORAGE_KEYS = {
   LOGS: 'openmdl_activity_logs',
   THEME: 'openmdl_theme',
   PERKS: 'openmdl_volunteer_perks',
+  PERK_SETTINGS: 'openmdl_perk_settings',
   TPE_SETTINGS: 'openmdl_tpe_settings',
   TPE_LOGS: 'openmdl_tpe_logs',
   SNAKE_SCORES: 'openmdl_snake_scores',
   PACMAN_SCORES: 'openmdl_pacman_scores'
+};
+
+export const DEFAULT_PERK_SETTINGS: PerkSettings = {
+  enabled: true,
+  rule: 'items_sold',
+  threshold: 10,
+  allowMultiplePerDay: false
 };
 
 export interface ActivityLog {
@@ -250,6 +258,7 @@ class DatabaseService {
   private restocks: RestockLog[] = [];
   private logs: ActivityLog[] = [];
   private volunteerPerks: VolunteerPerk[] = [];
+  private perkSettings: PerkSettings = { ...DEFAULT_PERK_SETTINGS };
   private tpeSettings: TpeSettings = DEFAULT_TPE_SETTINGS;
   private tpeLogs: TpePaymentLog[] = [];
   private snakeScores: SnakeScore[] = [];
@@ -324,6 +333,11 @@ class DatabaseService {
 
       const storedPerks = localStorage.getItem(STORAGE_KEYS.PERKS);
       this.volunteerPerks = storedPerks ? JSON.parse(storedPerks) : [];
+
+      const storedPerkSettings = localStorage.getItem(STORAGE_KEYS.PERK_SETTINGS);
+      this.perkSettings = storedPerkSettings
+        ? { ...DEFAULT_PERK_SETTINGS, ...JSON.parse(storedPerkSettings) }
+        : { ...DEFAULT_PERK_SETTINGS };
 
       const storedTpe = localStorage.getItem(STORAGE_KEYS.TPE_SETTINGS);
       this.tpeSettings = storedTpe ? JSON.parse(storedTpe) : DEFAULT_TPE_SETTINGS;
@@ -837,14 +851,43 @@ class DatabaseService {
     this.notify();
   }
 
-  public closeSession(incidentNotes: string): { session: Session; backupName: string } {
+  public saveActiveSession(): void {
+    if (this.activeSession) {
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    }
+  }
+
+  public saveSessionDraft(draftNotes: string, draftPerkProductId?: string): void {
+    if (!this.activeSession) return;
+    this.activeSession.draftNotes = draftNotes;
+    this.activeSession.draftPerkProductId = draftPerkProductId;
+    this.saveActiveSession();
+  }
+
+  public clearSessionDraft(): void {
+    if (!this.activeSession) return;
+    delete this.activeSession.draftNotes;
+    delete this.activeSession.draftPerkProductId;
+    this.saveActiveSession();
+  }
+
+  public closeSession(incidentNotes: string, perkProductId?: string): { session: Session; backupName: string; perkResult?: { success: boolean; message: string } } {
     if (!this.activeSession) {
       throw new Error('Aucune séance active à clôturer');
+    }
+
+    let perkResult: { success: boolean; message: string } | undefined;
+    if (perkProductId) {
+      perkResult = this.claimVolunteerPerk(this.activeSession.volunteerId, perkProductId, this.activeSession.id);
     }
 
     this.activeSession.endTime = new Date().toISOString();
     this.activeSession.status = 'closed';
     this.activeSession.incidentNotes = incidentNotes.trim();
+    delete this.activeSession.draftNotes;
+    delete this.activeSession.draftPerkProductId;
 
     this.sessions.unshift({ ...this.activeSession });
     this.saveSessions();
@@ -852,7 +895,7 @@ class DatabaseService {
     const closedSession = { ...this.activeSession };
     const volName = this.activeSession.volunteerName;
 
-    this.logActivity('SESSION', `Clôture séance par ${volName}. Ventes: ${closedSession.totalSales.toFixed(2)}€ (${closedSession.salesCount} ventes). Notes: ${incidentNotes || 'Aucun incident'}`);
+    this.logActivity('SESSION', `Clôture séance par ${volName}. Ventes: ${closedSession.totalSales.toFixed(2)}€ (${closedSession.salesCount} ventes). Notes: ${incidentNotes || 'Aucun incident'}${perkResult?.success ? ` - Conso offerte: ${perkResult.message}` : ''}`);
 
     // Création du backup horodaté de clôture
     const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -865,7 +908,7 @@ class DatabaseService {
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
 
     this.notify();
-    return { session: closedSession, backupName };
+    return { session: closedSession, backupName, perkResult };
   }
 
   public createAutomaticBackup(tag: string): string {
@@ -1256,9 +1299,40 @@ class DatabaseService {
     return [...this.logs];
   }
 
-  // --- Gestion des Consommations Offertes aux Bénévoles (> 10 ventes / jour) ---
+  // --- Gestion des Consommations Offertes aux Bénévoles (Paramétrable) ---
+  public getPerkSettings(): PerkSettings {
+    return { ...this.perkSettings };
+  }
+
+  public updatePerkSettings(updates: Partial<PerkSettings>): void {
+    this.perkSettings = { ...this.perkSettings, ...updates };
+    localStorage.setItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
+    const statusTxt = this.perkSettings.enabled ? 'Activée' : 'Désactivée';
+    const ruleTxt = this.perkSettings.rule === 'items_sold' 
+      ? `${this.perkSettings.threshold} articles vendus` 
+      : this.perkSettings.rule === 'sales_count' 
+        ? `${this.perkSettings.threshold} ventes` 
+        : 'Toujours offerte';
+    this.logActivity('INFO', `Règles de collation bénévole mises à jour (${statusTxt}, règle: ${ruleTxt})`);
+    this.notify();
+  }
+
   public getVolunteerPerks(): VolunteerPerk[] {
     return [...this.volunteerPerks];
+  }
+
+  public getSessionSalesCount(sessionId?: string): number {
+    const targetSessionId = sessionId || this.activeSession?.id;
+    if (!targetSessionId) return 0;
+    return this.sales.filter(s => s.sessionId === targetSessionId).length;
+  }
+
+  public getSessionItemsSoldCount(sessionId?: string): number {
+    const targetSessionId = sessionId || this.activeSession?.id;
+    if (!targetSessionId) return 0;
+    return this.sales
+      .filter(s => s.sessionId === targetSessionId)
+      .reduce((total, s) => total + s.items.reduce((sum, item) => sum + (item.quantity || 1), 0), 0);
   }
 
   public getTodaySalesForVolunteer(volunteerId: string): number {
@@ -1266,46 +1340,118 @@ class DatabaseService {
     return this.sales.filter(s => s.volunteerId === volunteerId && s.timestamp.startsWith(todayStr)).length;
   }
 
+  public getTodayItemsSoldForVolunteer(volunteerId: string): number {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return this.sales
+      .filter(s => s.volunteerId === volunteerId && s.timestamp.startsWith(todayStr))
+      .reduce((total, s) => total + s.items.reduce((sum, item) => sum + (item.quantity || 1), 0), 0);
+  }
+
   public hasVolunteerClaimedPerkToday(volunteerId: string): boolean {
     const todayStr = new Date().toISOString().split('T')[0];
     return this.volunteerPerks.some(p => p.volunteerId === volunteerId && p.date === todayStr);
   }
 
-  public canClaimVolunteerPerk(volunteerId: string): { allowed: boolean; reason?: string; salesToday: number; requiredSales: number } {
+  public canClaimVolunteerPerk(volunteerId: string, sessionId?: string): {
+    allowed: boolean;
+    reason?: string;
+    salesToday: number;
+    requiredSales: number;
+    current: number;
+    required: number;
+    rule: PerkEligibilityRule;
+    enabled: boolean;
+  } {
+    const settings = this.perkSettings;
+    const targetSessionId = sessionId || this.activeSession?.id;
     const salesToday = this.getTodaySalesForVolunteer(volunteerId);
-    const requiredSales = 10;
-    const alreadyClaimed = this.hasVolunteerClaimedPerkToday(volunteerId);
 
-    if (alreadyClaimed) {
+    let current = 0;
+    let required = settings.threshold;
+
+    if (settings.rule === 'sales_count') {
+      current = targetSessionId 
+        ? this.getSessionSalesCount(targetSessionId) 
+        : salesToday;
+    } else if (settings.rule === 'items_sold') {
+      current = targetSessionId 
+        ? this.getSessionItemsSoldCount(targetSessionId) 
+        : this.getTodayItemsSoldForVolunteer(volunteerId);
+    } else {
+      // 'always'
+      current = 1;
+      required = 1;
+    }
+
+    if (!settings.enabled) {
       return {
         allowed: false,
-        reason: 'Conso gratuite déjà accordée aujourd\'hui (maximum 1 fois par jour)',
+        reason: 'La collation bénévole offerte est actuellement désactivée dans les réglages',
         salesToday,
-        requiredSales
+        requiredSales: required,
+        current,
+        required,
+        rule: settings.rule,
+        enabled: false
       };
     }
 
-    if (salesToday < requiredSales) {
+    const alreadyClaimed = this.hasVolunteerClaimedPerkToday(volunteerId);
+    if (!settings.allowMultiplePerDay && alreadyClaimed) {
       return {
         allowed: false,
-        reason: `Règle des 10 ventes non atteinte (${salesToday}/${requiredSales} ventes réalisées aujourd'hui)`,
+        reason: 'Collation offerte déjà accordée aujourd\'hui (maximum 1 par jour)',
         salesToday,
-        requiredSales
+        requiredSales: required,
+        current,
+        required,
+        rule: settings.rule,
+        enabled: true
+      };
+    }
+
+    if (settings.rule === 'sales_count' && current < required) {
+      return {
+        allowed: false,
+        reason: `Règle des ${required} ventes non atteinte (${current}/${required} ventes réalisées dans la séance)`,
+        salesToday,
+        requiredSales: required,
+        current,
+        required,
+        rule: settings.rule,
+        enabled: true
+      };
+    }
+
+    if (settings.rule === 'items_sold' && current < required) {
+      return {
+        allowed: false,
+        reason: `Règle des ${required} articles non atteinte (${current}/${required} articles vendus dans la séance)`,
+        salesToday,
+        requiredSales: required,
+        current,
+        required,
+        rule: settings.rule,
+        enabled: true
       };
     }
 
     return {
       allowed: true,
       salesToday,
-      requiredSales
+      requiredSales: required,
+      current,
+      required,
+      rule: settings.rule,
+      enabled: true
     };
   }
 
-  public claimVolunteerPerk(volunteerId: string, productId: string): { success: boolean; message: string; perk?: VolunteerPerk } {
+  public claimVolunteerPerk(volunteerId: string, productId: string, sessionId?: string): { success: boolean; message: string; perk?: VolunteerPerk } {
     const volunteer = this.volunteers.find(v => v.id === volunteerId) || this.currentVolunteer;
     if (!volunteer) return { success: false, message: 'Bénévole introuvable.' };
 
-    const check = this.canClaimVolunteerPerk(volunteer.id);
+    const check = this.canClaimVolunteerPerk(volunteer.id, sessionId);
     if (!check.allowed) {
       return { success: false, message: check.reason || 'Conditions non remplies.' };
     }

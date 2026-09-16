@@ -62,7 +62,18 @@ export interface Session {
   totalTpe: number;
   salesCount: number;
   incidentNotes?: string;
+  draftNotes?: string;
+  draftPerkProductId?: string;
   status: 'active' | 'closed';
+}
+
+export type PerkEligibilityRule = 'always' | 'sales_count' | 'items_sold';
+
+export interface PerkSettings {
+  enabled: boolean;
+  rule: PerkEligibilityRule;
+  threshold: number;
+  allowMultiplePerDay: boolean;
 }
 
 export interface RestockLog {

@@ -2,6 +2,7 @@ import { db } from '../services/db';
 import { Icons } from '../components/Icons';
 import { escapeHtml } from '../utils/security';
 import { updater, UpdateState } from '../services/updater';
+import { PerkEligibilityRule } from '../types';
 
 export class SettingsView {
   private feedbackMessage: { text: string; type: 'success' | 'error' } | null = null;
@@ -13,11 +14,21 @@ export class SettingsView {
     const container = document.createElement('div');
     container.className = 'w-full h-full flex flex-col gap-4 overflow-y-auto pr-1 animate-enter select-none';
 
+    this.renderContent(container);
+    this.attachEventListeners(container);
+
+    return container;
+  }
+
+  private renderContent(container: HTMLElement): void {
+    container.innerHTML = '';
+
     const volunteers = db.getVolunteers();
     const currentVolunteer = db.getCurrentVolunteer();
     const adminCount = volunteers.filter(v => v.isAdmin).length;
     const activeCount = volunteers.filter(v => !v.isSuspended).length;
     const suspendedCount = volunteers.filter(v => v.isSuspended).length;
+    const perkSettings = db.getPerkSettings();
 
     container.innerHTML = `
       <!-- En-tête de la page Paramètres -->
@@ -219,6 +230,118 @@ export class SettingsView {
                 <span class="text-[10px] uppercase font-bold text-sky-500">Screenshots</span>
               </button>
             </div>
+          </div>
+
+          <!-- Carte Règle de la Collation Bénévole (Conso Gratuite) -->
+          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                ${Icons.gift('w-4 h-4 text-orange-500')}
+                <span>Collation Bénévole (Conso Offerte)</span>
+              </div>
+              <span id="badge-perk-active" class="text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${perkSettings.enabled ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'}">
+                ${perkSettings.enabled ? 'Active' : 'Désactivée'}
+              </span>
+            </div>
+
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+              Récompensez les bénévoles de permanence au foyer par une boisson ou un snack offert selon vos critères.
+            </p>
+
+            <form id="perk-settings-form" class="space-y-3.5 pt-1">
+              <!-- Toggle Activer / Désactiver -->
+              <div 
+                id="row-perk-enabled" 
+                class="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100/80 dark:bg-slate-800/50 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3 cursor-pointer transition-colors"
+              >
+                <div>
+                  <div class="text-xs font-bold text-slate-800 dark:text-slate-200">Autoriser la collation offerte</div>
+                  <div class="text-[10px] text-slate-400">Permet aux bénévoles de sélectionner 1 boisson ou snack gratuit</div>
+                </div>
+                <div class="flex items-center gap-2.5">
+                  <span id="label-perk-enabled" class="text-[10px] font-black uppercase ${perkSettings.enabled ? 'text-emerald-500' : 'text-slate-400'}">
+                    ${perkSettings.enabled ? 'Activé' : 'Désactivé'}
+                  </span>
+                  <button 
+                    type="button" 
+                    id="btn-toggle-perk-enabled"
+                    class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${perkSettings.enabled ? 'bg-orange-600' : 'bg-slate-300 dark:bg-slate-700'}"
+                  >
+                    <span id="dot-perk-enabled" class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 ${perkSettings.enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Choix de la Règle -->
+              <div class="space-y-1">
+                <label for="perk-rule-select" class="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase">
+                  Condition d'obtention
+                </label>
+                <select 
+                  id="perk-rule-select" 
+                  class="w-full px-3 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-orange-500 transition-colors cursor-pointer ${!perkSettings.enabled ? 'opacity-50 cursor-not-allowed' : ''}"
+                  ${!perkSettings.enabled ? 'disabled' : ''}
+                >
+                  <option value="items_sold" ${perkSettings.rule === 'items_sold' ? 'selected' : ''}>Nombre d'articles vendus (ex: 10 canettes/snacks)</option>
+                  <option value="sales_count" ${perkSettings.rule === 'sales_count' ? 'selected' : ''}>Nombre de ventes / transactions (ex: 10 passages caisse)</option>
+                  <option value="always" ${perkSettings.rule === 'always' ? 'selected' : ''}>Toujours offerte (Sans condition de volume)</option>
+                </select>
+              </div>
+
+              <!-- Seuil requis -->
+              <div id="perk-threshold-container" class="space-y-1 ${perkSettings.rule === 'always' ? 'hidden' : 'block'}">
+                <label for="perk-threshold-input" class="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase">
+                  Objectif / Seuil requis
+                </label>
+                <div class="flex items-center rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 overflow-hidden focus-within:border-orange-500 transition-colors ${!perkSettings.enabled ? 'opacity-50' : ''}">
+                  <input 
+                    type="number" 
+                    id="perk-threshold-input" 
+                    min="1" 
+                    max="500" 
+                    value="${perkSettings.threshold}" 
+                    class="flex-1 px-3.5 py-2.5 bg-transparent text-xs font-mono font-bold text-slate-900 dark:text-white outline-none"
+                    ${!perkSettings.enabled ? 'disabled' : ''}
+                  />
+                  <span class="px-3.5 py-2.5 text-xs font-bold text-slate-400 bg-slate-100/80 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700 flex-shrink-0" id="perk-threshold-unit">
+                    ${perkSettings.rule === 'items_sold' ? 'articles' : 'ventes'}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Limite quotidienne -->
+              <div 
+                id="row-perk-daily-limit" 
+                class="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100/80 dark:bg-slate-800/50 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3 cursor-pointer transition-colors ${!perkSettings.enabled ? 'opacity-50 cursor-not-allowed' : ''}"
+              >
+                <div>
+                  <div class="text-xs font-bold text-slate-800 dark:text-slate-200">Plafond journalier strict</div>
+                  <div class="text-[10px] text-slate-400">Maximum 1 seule collation offerte par bénévole par jour</div>
+                </div>
+                <div class="flex items-center gap-2.5">
+                  <span id="label-perk-daily-limit" class="text-[10px] font-black uppercase ${!perkSettings.allowMultiplePerDay ? 'text-emerald-500' : 'text-slate-400'}">
+                    ${!perkSettings.allowMultiplePerDay ? '1 max / jour' : 'Illimité'}
+                  </span>
+                  <button 
+                    type="button" 
+                    id="btn-toggle-perk-daily-limit"
+                    class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${!perkSettings.allowMultiplePerDay ? 'bg-orange-600' : 'bg-slate-300 dark:bg-slate-700'}"
+                    ${!perkSettings.enabled ? 'disabled' : ''}
+                  >
+                    <span id="dot-perk-daily-limit" class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 ${!perkSettings.allowMultiplePerDay ? 'translate-x-5' : 'translate-x-0'}"></span>
+                  </button>
+                </div>
+              </div>
+
+              <button 
+                type="submit" 
+                id="btn-save-perk-settings"
+                class="w-full py-2.5 px-4 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs tracking-wide shadow-md shadow-orange-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                ${Icons.save('w-4 h-4')}
+                <span>Enregistrer les critères de collation</span>
+              </button>
+            </form>
           </div>
 
           <!-- Carte Mise à Jour du Logiciel (Tauri Auto-Updater) -->
@@ -455,11 +578,6 @@ export class SettingsView {
 
       </div>
     `;
-
-    // Attacher les écouteurs d'événements
-    this.attachEventListeners(container);
-
-    return container;
   }
 
   private attachEventListeners(container: HTMLElement): void {
@@ -626,6 +744,148 @@ export class SettingsView {
         };
         this.refresh(container);
       }
+    });
+
+    // Gestion des Paramètres de Collation Bénévole (Conso Gratuite)
+    const currentPerkSettings = db.getPerkSettings();
+    let isPerkEnabled = currentPerkSettings.enabled;
+    let isPerkDailyLimitStrict = !currentPerkSettings.allowMultiplePerDay;
+
+    const perkForm = container.querySelector('#perk-settings-form') as HTMLFormElement | null;
+    const rowPerkEnabled = container.querySelector('#row-perk-enabled') as HTMLElement | null;
+    const btnTogglePerkEnabled = container.querySelector('#btn-toggle-perk-enabled') as HTMLButtonElement | null;
+    const dotPerkEnabled = container.querySelector('#dot-perk-enabled') as HTMLElement | null;
+    const labelPerkEnabled = container.querySelector('#label-perk-enabled') as HTMLElement | null;
+
+    const rowPerkDailyLimit = container.querySelector('#row-perk-daily-limit') as HTMLElement | null;
+    const btnTogglePerkDailyLimit = container.querySelector('#btn-toggle-perk-daily-limit') as HTMLButtonElement | null;
+    const dotPerkDailyLimit = container.querySelector('#dot-perk-daily-limit') as HTMLElement | null;
+    const labelPerkDailyLimit = container.querySelector('#label-perk-daily-limit') as HTMLElement | null;
+
+    const perkRuleSelect = container.querySelector('#perk-rule-select') as HTMLSelectElement | null;
+    const perkThresholdContainer = container.querySelector('#perk-threshold-container') as HTMLElement | null;
+    const perkThresholdInput = container.querySelector('#perk-threshold-input') as HTMLInputElement | null;
+    const perkThresholdUnit = container.querySelector('#perk-threshold-unit') as HTMLElement | null;
+
+    const badgePerkActive = container.querySelector('#badge-perk-active') as HTMLElement | null;
+
+    const updatePerkEnabledUI = () => {
+      if (badgePerkActive) {
+        if (isPerkEnabled) {
+          badgePerkActive.textContent = 'Active';
+          badgePerkActive.className = 'text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+        } else {
+          badgePerkActive.textContent = 'Désactivée';
+          badgePerkActive.className = 'text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-500 border border-slate-500/20';
+        }
+      }
+
+      if (btnTogglePerkEnabled && dotPerkEnabled && labelPerkEnabled) {
+        if (isPerkEnabled) {
+          btnTogglePerkEnabled.className = 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out bg-orange-600';
+          dotPerkEnabled.className = 'inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 translate-x-5';
+          labelPerkEnabled.textContent = 'Activé';
+          labelPerkEnabled.className = 'text-[10px] font-black uppercase text-emerald-500';
+        } else {
+          btnTogglePerkEnabled.className = 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out bg-slate-300 dark:bg-slate-700';
+          dotPerkEnabled.className = 'inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 translate-x-0';
+          labelPerkEnabled.textContent = 'Désactivé';
+          labelPerkEnabled.className = 'text-[10px] font-black uppercase text-slate-400';
+        }
+      }
+
+      if (perkRuleSelect) {
+        perkRuleSelect.disabled = !isPerkEnabled;
+        if (isPerkEnabled) {
+          perkRuleSelect.classList.remove('opacity-50', 'cursor-not-allowed');
+        } else {
+          perkRuleSelect.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+      }
+
+      if (perkThresholdInput) {
+        perkThresholdInput.disabled = !isPerkEnabled;
+        const parent = perkThresholdInput.parentElement;
+        if (parent) {
+          if (isPerkEnabled) parent.classList.remove('opacity-50');
+          else parent.classList.add('opacity-50');
+        }
+      }
+
+      if (btnTogglePerkDailyLimit && rowPerkDailyLimit) {
+        btnTogglePerkDailyLimit.disabled = !isPerkEnabled;
+        if (isPerkEnabled) {
+          rowPerkDailyLimit.classList.remove('opacity-50', 'cursor-not-allowed');
+        } else {
+          rowPerkDailyLimit.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+      }
+    };
+
+    const updatePerkDailyLimitUI = () => {
+      if (btnTogglePerkDailyLimit && dotPerkDailyLimit && labelPerkDailyLimit) {
+        if (isPerkDailyLimitStrict) {
+          btnTogglePerkDailyLimit.className = 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out bg-orange-600';
+          dotPerkDailyLimit.className = 'inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 translate-x-5';
+          labelPerkDailyLimit.textContent = '1 max / jour';
+          labelPerkDailyLimit.className = 'text-[10px] font-black uppercase text-emerald-500';
+        } else {
+          btnTogglePerkDailyLimit.className = 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out bg-slate-300 dark:bg-slate-700';
+          dotPerkDailyLimit.className = 'inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 translate-x-0';
+          labelPerkDailyLimit.textContent = 'Illimité';
+          labelPerkDailyLimit.className = 'text-[10px] font-black uppercase text-slate-400';
+        }
+      }
+    };
+
+    rowPerkEnabled?.addEventListener('click', (e) => {
+      e.preventDefault();
+      isPerkEnabled = !isPerkEnabled;
+      updatePerkEnabledUI();
+      db.updatePerkSettings({ enabled: isPerkEnabled });
+    });
+
+    rowPerkDailyLimit?.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (!isPerkEnabled) return;
+      isPerkDailyLimitStrict = !isPerkDailyLimitStrict;
+      updatePerkDailyLimitUI();
+      db.updatePerkSettings({ allowMultiplePerDay: !isPerkDailyLimitStrict });
+    });
+
+    perkRuleSelect?.addEventListener('change', () => {
+      const rule = perkRuleSelect.value as PerkEligibilityRule;
+      if (rule === 'always') {
+        perkThresholdContainer?.classList.add('hidden');
+        perkThresholdContainer?.classList.remove('block');
+      } else {
+        perkThresholdContainer?.classList.remove('hidden');
+        perkThresholdContainer?.classList.add('block');
+        if (perkThresholdUnit) {
+          perkThresholdUnit.textContent = rule === 'items_sold' ? 'articles' : 'ventes';
+        }
+      }
+    });
+
+    perkForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const rule = (perkRuleSelect?.value || 'items_sold') as PerkEligibilityRule;
+      const threshold = Math.max(1, parseInt(perkThresholdInput?.value || '10', 10) || 10);
+
+      db.updatePerkSettings({
+        enabled: isPerkEnabled,
+        rule,
+        threshold,
+        allowMultiplePerDay: !isPerkDailyLimitStrict
+      });
+
+      this.feedbackMessage = {
+        text: isPerkEnabled 
+          ? 'Critères de collation bénévole enregistrés avec succès (Collation active) !' 
+          : 'La collation bénévole offerte a été DÉSACTIVÉE avec succès.',
+        type: 'success'
+      };
+      this.refresh(container);
     });
 
     // Gestion de la section Mise à jour logicielle (Tauri Auto-Updater)
