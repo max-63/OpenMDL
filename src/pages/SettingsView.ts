@@ -73,10 +73,9 @@ export class SettingsView {
 
       <!-- Feedback notification -->
       ${this.feedbackMessage ? `
-        <div class="p-4 rounded-2xl ${
-          this.feedbackMessage.type === 'success' 
-            ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-600 dark:text-emerald-400' 
-            : 'bg-rose-500/10 border-rose-500/25 text-rose-600 dark:text-rose-400'
+        <div class="p-4 rounded-2xl ${this.feedbackMessage.type === 'success'
+          ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-600 dark:text-emerald-400'
+          : 'bg-rose-500/10 border-rose-500/25 text-rose-600 dark:text-rose-400'
         } border text-xs font-bold flex items-center justify-between animate-enter">
           <div class="flex items-center gap-2">
             ${this.feedbackMessage.type === 'success' ? Icons.check('w-4 h-4') : Icons.alertTriangle('w-4 h-4')}
@@ -248,6 +247,8 @@ export class SettingsView {
               Récompensez les bénévoles de permanence au foyer par une boisson ou un snack offert selon vos critères.
             </p>
 
+
+            
             <form id="perk-settings-form" class="space-y-3.5 pt-1">
               <!-- Toggle Activer / Désactiver -->
               <div 
@@ -272,75 +273,78 @@ export class SettingsView {
                 </div>
               </div>
 
-              <!-- Choix de la Règle -->
-              <div class="space-y-1">
-                <label for="perk-rule-select" class="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase">
-                  Condition d'obtention
-                </label>
-                <select 
-                  id="perk-rule-select" 
-                  class="w-full px-3 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-orange-500 transition-colors cursor-pointer ${!perkSettings.enabled ? 'opacity-50 cursor-not-allowed' : ''}"
-                  ${!perkSettings.enabled ? 'disabled' : ''}
-                >
-                  <option value="items_sold" ${perkSettings.rule === 'items_sold' ? 'selected' : ''}>Nombre d'articles vendus (ex: 10 canettes/snacks)</option>
-                  <option value="sales_count" ${perkSettings.rule === 'sales_count' ? 'selected' : ''}>Nombre de ventes / transactions (ex: 10 passages caisse)</option>
-                  <option value="always" ${perkSettings.rule === 'always' ? 'selected' : ''}>Toujours offerte (Sans condition de volume)</option>
-                </select>
-              </div>
-
-              <!-- Seuil requis -->
-              <div id="perk-threshold-container" class="space-y-1 ${perkSettings.rule === 'always' ? 'hidden' : 'block'}">
-                <label for="perk-threshold-input" class="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase">
-                  Objectif / Seuil requis
-                </label>
-                <div class="flex items-center rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 overflow-hidden focus-within:border-orange-500 transition-colors ${!perkSettings.enabled ? 'opacity-50' : ''}">
-                  <input 
-                    type="number" 
-                    id="perk-threshold-input" 
-                    min="1" 
-                    max="500" 
-                    value="${perkSettings.threshold}" 
-                    class="flex-1 px-3.5 py-2.5 bg-transparent text-xs font-mono font-bold text-slate-900 dark:text-white outline-none"
-                    ${!perkSettings.enabled ? 'disabled' : ''}
-                  />
-                  <span class="px-3.5 py-2.5 text-xs font-bold text-slate-400 bg-slate-100/80 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700 flex-shrink-0" id="perk-threshold-unit">
-                    ${perkSettings.rule === 'items_sold' ? 'articles' : 'ventes'}
-                  </span>
-                </div>
-              </div>
-
-              <!-- Limite quotidienne -->
-              <div 
-                id="row-perk-daily-limit" 
-                class="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100/80 dark:bg-slate-800/50 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3 cursor-pointer transition-colors ${!perkSettings.enabled ? 'opacity-50 cursor-not-allowed' : ''}"
-              >
-                <div>
-                  <div class="text-xs font-bold text-slate-800 dark:text-slate-200">Plafond journalier strict</div>
-                  <div class="text-[10px] text-slate-400">Maximum 1 seule collation offerte par bénévole par jour</div>
-                </div>
-                <div class="flex items-center gap-2.5">
-                  <span id="label-perk-daily-limit" class="text-[10px] font-black uppercase ${!perkSettings.allowMultiplePerDay ? 'text-emerald-500' : 'text-slate-400'}">
-                    ${!perkSettings.allowMultiplePerDay ? '1 max / jour' : 'Illimité'}
-                  </span>
-                  <button 
-                    type="button" 
-                    id="btn-toggle-perk-daily-limit"
-                    class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${!perkSettings.allowMultiplePerDay ? 'bg-orange-600' : 'bg-slate-300 dark:bg-slate-700'}"
+              <!-- Options dépliables : masquées si la collation est désactivée -->
+              <div id="perk-options-collapsible" class="space-y-3.5 pt-1 ${perkSettings.enabled ? 'block' : 'hidden'}">
+                <!-- Choix de la Règle -->
+                <div class="space-y-1">
+                  <label for="perk-rule-select" class="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase">
+                    Condition d'obtention
+                  </label>
+                  <select 
+                    id="perk-rule-select" 
+                    class="w-full px-3 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-orange-500 transition-colors cursor-pointer ${!perkSettings.enabled ? 'opacity-50 cursor-not-allowed' : ''}"
                     ${!perkSettings.enabled ? 'disabled' : ''}
                   >
-                    <span id="dot-perk-daily-limit" class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 ${!perkSettings.allowMultiplePerDay ? 'translate-x-5' : 'translate-x-0'}"></span>
-                  </button>
+                    <option value="items_sold" ${perkSettings.rule === 'items_sold' ? 'selected' : ''}>Nombre d'articles vendus (ex: 10 canettes/snacks)</option>
+                    <option value="sales_count" ${perkSettings.rule === 'sales_count' ? 'selected' : ''}>Nombre de ventes / transactions (ex: 10 passages caisse)</option>
+                    <option value="always" ${perkSettings.rule === 'always' ? 'selected' : ''}>Toujours offerte (Sans condition de volume)</option>
+                  </select>
                 </div>
-              </div>
 
-              <button 
-                type="submit" 
-                id="btn-save-perk-settings"
-                class="w-full py-2.5 px-4 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs tracking-wide shadow-md shadow-orange-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                ${Icons.save('w-4 h-4')}
-                <span>Enregistrer les critères de collation</span>
-              </button>
+                <!-- Seuil requis -->
+                <div id="perk-threshold-container" class="space-y-1 ${perkSettings.rule === 'always' ? 'hidden' : 'block'}">
+                  <label for="perk-threshold-input" class="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase">
+                    Objectif / Seuil requis
+                  </label>
+                  <div class="flex items-center rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 overflow-hidden focus-within:border-orange-500 transition-colors ${!perkSettings.enabled ? 'opacity-50' : ''}">
+                    <input 
+                      type="number" 
+                      id="perk-threshold-input" 
+                      min="1" 
+                      max="500" 
+                      value="${perkSettings.threshold}" 
+                      class="flex-1 px-3.5 py-2.5 bg-transparent text-xs font-mono font-bold text-slate-900 dark:text-white outline-none"
+                      ${!perkSettings.enabled ? 'disabled' : ''}
+                    />
+                    <span class="px-3.5 py-2.5 text-xs font-bold text-slate-400 bg-slate-100/80 dark:bg-slate-700/50 border-l border-slate-200 dark:border-slate-700 flex-shrink-0" id="perk-threshold-unit">
+                      ${perkSettings.rule === 'items_sold' ? 'articles' : 'ventes'}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Limite quotidienne -->
+                <div 
+                  id="row-perk-daily-limit" 
+                  class="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100/80 dark:bg-slate-800/50 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3 cursor-pointer transition-colors ${!perkSettings.enabled ? 'opacity-50 cursor-not-allowed' : ''}"
+                >
+                  <div>
+                    <div class="text-xs font-bold text-slate-800 dark:text-slate-200">Plafond journalier strict</div>
+                    <div class="text-[10px] text-slate-400">Maximum 1 seule collation offerte par bénévole par jour</div>
+                  </div>
+                  <div class="flex items-center gap-2.5">
+                    <span id="label-perk-daily-limit" class="text-[10px] font-black uppercase ${!perkSettings.allowMultiplePerDay ? 'text-emerald-500' : 'text-slate-400'}">
+                      ${!perkSettings.allowMultiplePerDay ? '1 max / jour' : 'Illimité'}
+                    </span>
+                    <button 
+                      type="button" 
+                      id="btn-toggle-perk-daily-limit"
+                      class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${!perkSettings.allowMultiplePerDay ? 'bg-orange-600' : 'bg-slate-300 dark:bg-slate-700'}"
+                      ${!perkSettings.enabled ? 'disabled' : ''}
+                    >
+                      <span id="dot-perk-daily-limit" class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 ${!perkSettings.allowMultiplePerDay ? 'translate-x-5' : 'translate-x-0'}"></span>
+                    </button>
+                  </div>
+                </div>
+
+                <button 
+                  type="submit" 
+                  id="btn-save-perk-settings"
+                  class="w-full py-2.5 px-4 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs tracking-wide shadow-md shadow-orange-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  ${Icons.save('w-4 h-4')}
+                  <span>Enregistrer les critères de collation</span>
+                </button>
+              </div>
             </form>
           </div>
 
@@ -364,6 +368,32 @@ export class SettingsView {
               <!-- Rendu dynamique géré par renderUpdaterSection -->
             </div>
           </div>
+
+          <!-- Carte À Propos & Mentions Légales -->
+          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                ${Icons.sparkles('w-4 h-4 text-orange-500')}
+                <span>À Propos & Droits d'Auteur</span>
+              </div>
+              <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                Protégé
+              </span>
+            </div>
+
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+              Développé avec soin par <strong>Adrien Courault</strong>, testé par <strong>Baly Jérémy</strong> pour les Maisons des Lycéens et CVL.
+            </p>
+
+            <button 
+              type="button" 
+              id="btn-goto-credits"
+              class="w-full py-2.5 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-800 dark:text-slate-200 font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer border border-slate-200 dark:border-slate-700"
+            >
+              ${Icons.shieldCheck('w-4 h-4 text-emerald-500')}
+              <span>Consulter les Crédits & Mentions Légales</span>
+            </button>
+          </div>
         </div>
 
         <!-- Colonne Droite : Liste & Gestion des Utilisateurs (7 col) -->
@@ -385,17 +415,16 @@ export class SettingsView {
             <!-- Liste des utilisateurs -->
             <div class="space-y-2.5 overflow-y-auto pt-4 flex-1 pr-1">
               ${volunteers.map(v => {
-                const isCurrent = v.id === currentVolunteer?.id;
-                const isSuspended = !!v.isSuspended;
-                const isEditingPassword = this.editingPasswordUserId === v.id;
-                const isEditingName = this.editingNameUserId === v.id;
+          const isCurrent = v.id === currentVolunteer?.id;
+          const isSuspended = !!v.isSuspended;
+          const isEditingPassword = this.editingPasswordUserId === v.id;
+          const isEditingName = this.editingNameUserId === v.id;
 
-                return `
-                  <div class="p-4 rounded-2xl border ${
-                    isSuspended 
-                      ? 'border-rose-200 dark:border-rose-950/60 bg-rose-50/30 dark:bg-rose-950/10' 
-                      : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850/60'
-                  } transition-all space-y-3">
+          return `
+                  <div class="p-4 rounded-2xl border ${isSuspended
+              ? 'border-rose-200 dark:border-rose-950/60 bg-rose-50/30 dark:bg-rose-950/10'
+              : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850/60'
+            } transition-all space-y-3">
                     
                     <div class="flex items-center justify-between gap-3 flex-wrap">
                       
@@ -501,11 +530,10 @@ export class SettingsView {
                           <button 
                             type="button" 
                             data-action-suspend="${v.id}"
-                            class="px-2.5 py-1.5 rounded-xl ${
-                              isSuspended 
-                                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' 
-                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/20'
-                            } font-bold text-xs transition-colors cursor-pointer flex items-center gap-1"
+                            class="px-2.5 py-1.5 rounded-xl ${isSuspended
+                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/20'
+              } font-bold text-xs transition-colors cursor-pointer flex items-center gap-1"
                           >
                             <span>${isSuspended ? 'Réactiver le compte' : 'Suspendre le compte'}</span>
                           </button>
@@ -570,7 +598,7 @@ export class SettingsView {
 
                   </div>
                 `;
-              }).join('')}
+        }).join('')}
             </div>
 
           </div>
@@ -770,6 +798,17 @@ export class SettingsView {
     const badgePerkActive = container.querySelector('#badge-perk-active') as HTMLElement | null;
 
     const updatePerkEnabledUI = () => {
+      const perkOptionsCollapsible = container.querySelector('#perk-options-collapsible') as HTMLElement | null;
+      if (perkOptionsCollapsible) {
+        if (isPerkEnabled) {
+          perkOptionsCollapsible.classList.remove('hidden');
+          perkOptionsCollapsible.classList.add('block');
+        } else {
+          perkOptionsCollapsible.classList.add('hidden');
+          perkOptionsCollapsible.classList.remove('block');
+        }
+      }
+
       if (badgePerkActive) {
         if (isPerkEnabled) {
           badgePerkActive.textContent = 'Active';
@@ -880,8 +919,8 @@ export class SettingsView {
       });
 
       this.feedbackMessage = {
-        text: isPerkEnabled 
-          ? 'Critères de collation bénévole enregistrés avec succès (Collation active) !' 
+        text: isPerkEnabled
+          ? 'Critères de collation bénévole enregistrés avec succès (Collation active) !'
           : 'La collation bénévole offerte a été DÉSACTIVÉE avec succès.',
         type: 'success'
       };
@@ -895,6 +934,10 @@ export class SettingsView {
         this.renderUpdaterSection(cardSoftwareUpdate, state);
       });
     }
+
+    container.querySelector('#btn-goto-credits')?.addEventListener('click', () => {
+      (window as any).OpenMDL?.navigation.goTo('credits');
+    });
   }
 
   private renderUpdaterSection(cardContainer: HTMLElement, state: UpdateState): void {

@@ -87,6 +87,151 @@ fn exit_app(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct AddonFileDto {
+    pub path: String,
+    pub content: String,
+}
+
+#[tauri::command]
+fn open_in_external_editor(
+    app_handle: tauri::AppHandle,
+    addon_id: String,
+    files: Vec<AddonFileDto>,
+) -> Result<String, String> {
+    let app_dir = get_app_dir(&app_handle);
+    let safe_id: String = addon_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    let safe_id = if safe_id.is_empty() {
+        "addon".to_string()
+    } else {
+        safe_id
+    };
+
+    let addon_dir = app_dir.join("addons_dev").join(&safe_id);
+    if let Err(e) = fs::create_dir_all(&addon_dir) {
+        return Err(format!("Impossible de créer le dossier de développement: {}", e));
+    }
+
+    for file in files {
+        let clean_rel = file.path.trim_start_matches('/');
+        let target_file_path = addon_dir.join(clean_rel);
+        if let Some(parent) = target_file_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(target_file_path, file.content);
+    }
+
+    // Assurer la présence de tsconfig.json et openmdl.d.ts pour zéro erreur dans VS Code
+    let tsconfig_path = addon_dir.join("tsconfig.json");
+    if !tsconfig_path.exists() {
+        let tsconfig_content = r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "moduleResolution": "bundler"
+  },
+  "include": ["src/**/*", "openmdl.d.ts"]
+}
+"#;
+        let _ = fs::write(tsconfig_path, tsconfig_content);
+    }
+
+    let dts_path = addon_dir.join("openmdl.d.ts");
+    if !dts_path.exists() {
+        let dts_content = include_str!("../../docs/api/openmdl.d.ts");
+        let _ = fs::write(dts_path, dts_content);
+    }
+
+    let target_str = addon_dir.to_string_lossy().to_string();
+    let editors = ["code", "lapce", "zed", "codium", "cursor"];
+    let mut launched_editor = None;
+
+    for ed in editors {
+        if std::process::Command::new(ed).arg(&target_str).spawn().is_ok() {
+            launched_editor = Some(ed.to_string());
+            break;
+        }
+    }
+
+    if launched_editor.is_none() {
+        #[cfg(target_os = "linux")]
+        let _ = std::process::Command::new("xdg-open").arg(&target_str).spawn();
+        #[cfg(target_os = "macos")]
+        let _ = std::process::Command::new("open").arg(&target_str).spawn();
+        #[cfg(target_os = "windows")]
+        let _ = std::process::Command::new("explorer").arg(&target_str).spawn();
+    }
+
+    Ok(format!(
+        "Dossier ouvert dans {} ({})",
+        launched_editor.unwrap_or_else(|| "gestionnaire de fichiers".to_string()),
+        target_str
+    ))
+}
+
+#[tauri::command]
+fn read_addon_files_from_disk(
+    app_handle: tauri::AppHandle,
+    addon_id: String,
+) -> Result<Vec<AddonFileDto>, String> {
+    let app_dir = get_app_dir(&app_handle);
+    let safe_id: String = addon_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    let safe_id = if safe_id.is_empty() {
+        "addon".to_string()
+    } else {
+        safe_id
+    };
+
+    let addon_dir = app_dir.join("addons_dev").join(&safe_id);
+    if !addon_dir.exists() {
+        return Err("Dossier de développement introuvable sur le disque".to_string());
+    }
+
+    let mut result = Vec::new();
+    read_dir_recursive(&addon_dir, &addon_dir, &mut result)?;
+    Ok(result)
+}
+
+fn read_dir_recursive(
+    base_dir: &PathBuf,
+    current_dir: &PathBuf,
+    acc: &mut Vec<AddonFileDto>,
+) -> Result<(), String> {
+    if let Ok(entries) = fs::read_dir(current_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with('.') || file_name == "node_modules" || file_name == "target" {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                read_dir_recursive(base_dir, &path, acc)?;
+            } else if path.is_file() {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(rel) = path.strip_prefix(base_dir) {
+                        let rel_str = format!("/{}", rel.to_string_lossy().replace('\\', "/"));
+                        acc.push(AddonFileDto {
+                            path: rel_str,
+                            content,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -112,7 +257,13 @@ pub fn run() {
                 window.app_handle().exit(0);
             }
         })
-        .invoke_handler(tauri::generate_handler![save_backup, append_log, exit_app])
+        .invoke_handler(tauri::generate_handler![
+            save_backup,
+            append_log,
+            exit_app,
+            open_in_external_editor,
+            read_addon_files_from_disk
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

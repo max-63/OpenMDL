@@ -45,7 +45,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.70,
     stock: 24,
     minStockAlert: 8,
-    imageUrl: 'https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/kinder-bueno.jpg',
     isActive: true
   },
   {
@@ -56,7 +56,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.50,
     stock: 36,
     minStockAlert: 12,
-    imageUrl: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/coca-cola.jpg',
     isActive: true
   },
   {
@@ -67,7 +67,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.48,
     stock: 18,
     minStockAlert: 10,
-    imageUrl: 'https://images.unsplash.com/photo-1621263764928-df1444c5e859?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/oasis-tropical.jpg',
     isActive: true
   },
   {
@@ -78,7 +78,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.49,
     stock: 6,
     minStockAlert: 10,
-    imageUrl: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/fuze-tea-peche.jpg',
     isActive: true
   },
   {
@@ -89,7 +89,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.55,
     stock: 15,
     minStockAlert: 6,
-    imageUrl: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/kitkat.jpg',
     isActive: true
   },
   {
@@ -100,7 +100,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.65,
     stock: 20,
     minStockAlert: 8,
-    imageUrl: 'https://images.unsplash.com/photo-1582293041079-7814c2f12063?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/mms-peanut.jpg',
     isActive: true
   },
   {
@@ -111,7 +111,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.40,
     stock: 30,
     minStockAlert: 10,
-    imageUrl: 'https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/haribo-dragibus.jpg',
     isActive: true
   },
   {
@@ -122,7 +122,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.35,
     stock: 4,
     minStockAlert: 12,
-    imageUrl: 'https://images.unsplash.com/photo-1600271886742-f049cd451bba?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/capri-sun.jpg',
     isActive: true
   },
   {
@@ -133,7 +133,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.15,
     stock: 100,
     minStockAlert: 20,
-    imageUrl: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/cafe-expresso.jpg',
     isActive: true
   },
   {
@@ -144,7 +144,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.25,
     stock: 50,
     minStockAlert: 15,
-    imageUrl: 'https://images.unsplash.com/photo-1542990253-0d0f5be5f0ed?auto=format&fit=crop&w=400&q=80',
+    imageUrl: '/products/chocolat-chaud.jpg',
     isActive: true
   }
 ];
@@ -285,6 +285,22 @@ class DatabaseService {
       const storedProds = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
       this.products = storedProds ? JSON.parse(storedProds) : INITIAL_PRODUCTS;
 
+      // Migration automatique des images d'exemple vers les fichiers locaux hors-ligne
+      let prodsMigrated = false;
+      this.products = this.products.map(p => {
+        if (!p.imageUrl || p.imageUrl.includes('unsplash.com') || p.imageUrl.startsWith('http')) {
+          const match = DEMO_PRODUCTS.find(dp => dp.id === p.id || dp.name.trim().toLowerCase() === p.name.trim().toLowerCase());
+          if (match) {
+            prodsMigrated = true;
+            return { ...p, imageUrl: match.imageUrl };
+          }
+        }
+        return p;
+      });
+      if (prodsMigrated) {
+        this.saveProducts();
+      }
+
       const storedSales = localStorage.getItem(STORAGE_KEYS.SALES);
       this.sales = storedSales ? JSON.parse(storedSales) : [];
 
@@ -388,29 +404,35 @@ class DatabaseService {
     }
   }
 
-  private saveProducts(): void {
+  public saveProducts(): void {
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(this.products));
   }
 
-  private saveSales(): void {
+  public saveSales(): void {
     localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(this.sales));
   }
 
-  private saveSessions(): void {
+  public saveSessions(): void {
     localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
   }
 
-  private saveVolunteers(): void {
+  public saveVolunteers(): void {
     localStorage.setItem(STORAGE_KEYS.VOLUNTEERS, JSON.stringify(this.volunteers));
   }
 
-  private saveRestocks(): void {
+  public saveRestocks(): void {
     localStorage.setItem(STORAGE_KEYS.RESTOCKS, JSON.stringify(this.restocks));
   }
 
-  private saveLogs(): void {
+  public saveLogs(): void {
     localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs));
   }
+
+  public savePerkSettings(): void {
+    localStorage.setItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
+  }
+
+
 
   public saveTpeSettings(): void {
     localStorage.setItem(STORAGE_KEYS.TPE_SETTINGS, JSON.stringify(this.tpeSettings));
@@ -469,6 +491,7 @@ class DatabaseService {
       };
       localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
       this.logActivity('SESSION', `Ouverture de permanence par ${volunteer.name}`);
+      (window as any).OpenMDL?.events.emit('session:opened', this.activeSession);
     } else {
       this.logActivity('INFO', `Connexion de ${volunteer.name} à la séance active`);
     }
@@ -907,6 +930,8 @@ class DatabaseService {
     this.currentVolunteer = null;
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
 
+    (window as any).OpenMDL?.events.emit('session:closed', closedSession);
+
     this.notify();
     return { session: closedSession, backupName, perkResult };
   }
@@ -1092,6 +1117,8 @@ class DatabaseService {
 
     const itemsSummary = sale.items.map(i => `${i.quantity}x ${i.productName}`).join(', ');
     this.logActivity('SALE', `Vente encaissée (${sale.paymentMethod.toUpperCase()}): ${sale.totalAmount.toFixed(2)}€ [${itemsSummary}]`);
+
+    (window as any).OpenMDL?.events.emit('sale:completed', sale);
 
     this.notify();
     return sale;
@@ -1938,6 +1965,78 @@ class DatabaseService {
         }
       };
     }
+  }
+
+  public exportData(): Record<string, any> {
+    return {
+      version: '1.0.5',
+      exportDate: new Date().toISOString(),
+      products: this.products,
+      sales: this.sales,
+      sessions: this.sessions,
+      volunteers: this.volunteers,
+      restocks: this.restocks,
+      logs: this.logs,
+      perkSettings: this.perkSettings,
+      tpeSettings: this.tpeSettings
+    };
+  }
+
+  public importData(data: any): void {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Données d\'import invalides');
+    }
+    if (Array.isArray(data.products)) {
+      this.products = data.products;
+      this.saveProducts();
+    }
+    if (Array.isArray(data.sales)) {
+      this.sales = data.sales;
+      this.saveSales();
+    }
+    if (Array.isArray(data.sessions)) {
+      this.sessions = data.sessions;
+      this.saveSessions();
+    }
+    if (Array.isArray(data.volunteers)) {
+      this.volunteers = data.volunteers;
+      this.saveVolunteers();
+    }
+    if (Array.isArray(data.restocks)) {
+      this.restocks = data.restocks;
+      this.saveRestocks();
+    }
+    if (Array.isArray(data.logs)) {
+      this.logs = data.logs;
+      this.saveLogs();
+    }
+    if (data.perkSettings) {
+      this.perkSettings = { ...DEFAULT_PERK_SETTINGS, ...data.perkSettings };
+      this.savePerkSettings();
+    }
+    if (data.tpeSettings) {
+      this.tpeSettings = data.tpeSettings;
+      this.saveTpeSettings();
+    }
+    this.logActivity('BACKUP', 'Importation complète de la base de données effectuée');
+    this.notify();
+  }
+
+  public resetAll(): void {
+    this.products = [];
+    this.sales = [];
+    this.sessions = [];
+    this.activeSession = null;
+    this.restocks = [];
+    this.logs = [];
+    this.saveProducts();
+    this.saveSales();
+    this.saveSessions();
+    this.saveRestocks();
+    this.saveLogs();
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    this.logActivity('SECURITY', 'Réinitialisation complète des données effectuée');
+    this.notify();
   }
 }
 

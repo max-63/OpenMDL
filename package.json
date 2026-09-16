@@ -1,7 +1,7 @@
 {
   "name": "openmdl",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Logiciel de caisse & gestion de foyer open source pour la Maison des Lycéens (MDL)",
   "type": "module",
   "scripts": {
@@ -19,6 +19,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
+    "@types/prismjs": "^1.26.6",
     "autoprefixer": "^10.5.6",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
@@ -30,6 +31,9 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.11.0",
     "chart.js": "^4.5.1",
-    "lucide": "^1.45.0"
+    "lucide": "^1.45.0",
+    "marked": "^18.0.13",
+    "prismjs": "^1.30.0",
+    "sucrase": "^3.35.1"
   }
 }

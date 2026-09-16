@@ -1,5 +1,6 @@
 import { Volunteer, Session } from '../types';
 import { db } from '../services/db';
+import { addonManager } from '../services/addonManager';
 import { Icons } from './Icons';
 import { CloseSessionModalComponent } from './CloseSessionModal';
 
@@ -80,6 +81,14 @@ export class HeaderComponent {
               </button>
 
               ${volunteer?.isAdmin ? `
+                <button data-tab="addons" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'addons'
+          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+          : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+        }">
+                  ${Icons.puzzle('w-3.5 h-3.5')}
+                  <span>Addons</span>
+                </button>
+
                 <button data-tab="settings" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'settings'
           ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
           : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -88,12 +97,28 @@ export class HeaderComponent {
                   <span>Paramètres</span>
                 </button>
               ` : ''}
+
+              <!-- Onglets dynamiques créés par les Addons actifs -->
+              ${addonManager.getRegisteredTabs().map(tab => `
+                <button data-tab="${tab.id}" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === tab.id
+          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+          : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+        }">
+                  ${(Icons as any)[tab.icon] ? (Icons as any)[tab.icon]('w-3.5 h-3.5') : Icons.puzzle('w-3.5 h-3.5')}
+                  <span>${tab.label}</span>
+                </button>
+              `).join('')}
             </nav>
           </div>
 
           <!-- Actions Droite -->
           <div class="flex items-center gap-3">
             
+            <!-- Crédits & Mentions Légales -->
+            <button data-tab="credits" class="p-2 rounded-xl transition-all cursor-pointer ${this.currentTab === 'credits' ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400' : 'text-slate-500 hover:text-orange-500 hover:bg-orange-500/10'}" title="Crédits & Mentions Légales">
+              ${Icons.sparkles('w-4 h-4')}
+            </button>
+
             <!-- Bascule Thème -->
             <button id="btn-toggle-theme" class="p-2 rounded-xl text-slate-500 hover:text-orange-500 hover:bg-orange-500/10 transition-all" title="Changer le thème">
               ${isDark ? Icons.sun('w-4 h-4') : Icons.moon('w-4 h-4')}

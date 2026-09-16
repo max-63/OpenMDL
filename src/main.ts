@@ -1,5 +1,6 @@
 import './style.css';
 import { db } from './services/db';
+import { addonManager } from './services/addonManager';
 import { CartComponent } from './components/Cart';
 import { HeaderComponent } from './components/Header';
 import { CheckoutModalComponent } from './components/CheckoutModal';
@@ -11,6 +12,8 @@ import { StatsView } from './pages/StatsView';
 import { SettingsView } from './pages/SettingsView';
 import { TpeView } from './pages/TpeView';
 import { PlanningView } from './pages/PlanningView';
+import { AddonsView } from './pages/AddonsView';
+import { CreditsView } from './pages/CreditsView';
 import { SnakeModalComponent } from './components/SnakeModal';
 
 class App {
@@ -36,11 +39,24 @@ class App {
       () => this.openCheckout(),
       () => this.render()
     );
+    (window as any).__OPENMDL_CART__ = this.cart;
 
     // Écouter les changements de la base de données
     db.subscribe(() => {
       this.render();
     });
+
+    // Écouter les changements du gestionnaire d'addons
+    addonManager.subscribe(() => {
+      this.render();
+    });
+    addonManager.setNavigationCallback((tabId: string) => {
+      this.currentTab = tabId;
+      this.render();
+    });
+
+    // Démarrer les addons actifs au lancement
+    addonManager.initActiveAddons();
 
     // Support touche F11 pour basculer en plein écran Kiosque immersif
     window.addEventListener('keydown', (e) => {
@@ -181,6 +197,17 @@ class App {
         pageContainer.appendChild(tpeView.render());
         break;
       }
+      case 'addons': {
+        if (currentVolunteer.isAdmin) {
+          const addons = new AddonsView();
+          pageContainer.appendChild(addons.render());
+        } else {
+          this.currentTab = 'dashboard';
+          const dashboard = new DashboardView(this.cart);
+          pageContainer.appendChild(dashboard.render());
+        }
+        break;
+      }
       case 'settings': {
         if (currentVolunteer.isAdmin) {
           const settings = new SettingsView();
@@ -192,7 +219,22 @@ class App {
         }
         break;
       }
+      case 'credits': {
+        const credits = new CreditsView();
+        pageContainer.appendChild(credits.render());
+        break;
+      }
       default: {
+        // Vérifier si un onglet d'addon dynamique actif correspond
+        const registeredTab = addonManager.getRegisteredTabs().find(t => t.id === this.currentTab);
+        if (registeredTab) {
+          const tabContainer = document.createElement('div');
+          tabContainer.className = 'w-full h-full flex flex-col min-h-0 overflow-hidden animate-enter';
+          registeredTab.render(tabContainer);
+          pageContainer.appendChild(tabContainer);
+          break;
+        }
+
         const dashboard = new DashboardView(this.cart);
         pageContainer.appendChild(dashboard.render());
         break;

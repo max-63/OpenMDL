@@ -54,6 +54,19 @@ export const Icons = {
       <path d="M16 21h5v-5"/>
     </svg>`,
 
+  layers: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+      <polyline points="2 17 12 22 22 17"/>
+      <polyline points="2 12 12 17 22 12"/>
+    </svg>`,
+
+  terminal: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="4 17 10 11 4 5"/>
+      <line x1="12" y1="19" x2="20" y2="19"/>
+    </svg>`,
+
   logOut: (className = 'w-5 h-5') => `
     <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -337,5 +350,40 @@ export const Icons = {
   chevronRight: (className = 'w-5 h-5') => `
     <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="9 18 15 12 9 6"/>
+    </svg>`,
+
+  puzzle: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19.439 7.85c-.049-.322.059-.648.289-.878l1.568-1.568a1.2 1.2 0 0 0 0-1.704l-1.996-1.996a1.2 1.2 0 0 0-1.704 0l-1.568 1.568a.71.71 0 0 1-.878.29c-1.202-.18-2.05-1.127-2.05-2.312V1.2A1.2 1.2 0 0 0 11.9 0H9.9a1.2 1.2 0 0 0-1.2 1.2v.05c0 1.185-.848 2.132-2.05 2.312a.71.71 0 0 1-.878-.29L4.204 1.704a1.2 1.2 0 0 0-1.704 0L.504 3.7a1.2 1.2 0 0 0 0 1.704l1.568 1.568a.71.71 0 0 1 .29.878c-.18 1.202-1.127 2.05-2.312 2.05H0v2.2A1.2 1.2 0 0 0 1.2 13.3h.05c1.185 0 2.132.848 2.312 2.05a.71.71 0 0 1-.29.878l-1.568 1.568a1.2 1.2 0 0 0 0 1.704l1.996 1.996a1.2 1.2 0 0 0 1.704 0l1.568-1.568a.71.71 0 0 1 .878-.29c1.202.18 2.05 1.127 2.05 2.312v.05a1.2 1.2 0 0 0 1.2 1.2h2.2a1.2 1.2 0 0 0 1.2-1.2v-.05c0-1.185.848-2.132 2.05-2.312a.71.71 0 0 1 .878.29l1.568 1.568a1.2 1.2 0 0 0 1.704 0l1.996-1.996a1.2 1.2 0 0 0 0-1.704l-1.568-1.568a.71.71 0 0 1-.29-.878c.18-1.202 1.127-2.05 2.312-2.05h.05a1.2 1.2 0 0 0 1.2-1.2v-2.2h-.05c-1.185 0-2.132-.848-2.312-2.05z"/>
+    </svg>`,
+
+  book: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 2v20"/>
+    </svg>`,
+
+  shieldCheck: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>
+    </svg>`,
+
+  code: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+    </svg>`,
+
+  externalLink: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+    </svg>`,
+
+  gitBranch: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+    </svg>`,
+
+  folder: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
     </svg>`
 };

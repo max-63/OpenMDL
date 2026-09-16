@@ -41,11 +41,12 @@ export class ProductCardComponent {
             src="${safeImageUrl}" 
             alt="${safeName}" 
             loading="lazy" 
-            class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+            class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${!product.imageUrl ? 'hidden' : ''}"
+            onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden'); this.nextElementSibling.classList.add('flex');"
           />
-          <div class="hidden w-full h-full items-center justify-center text-slate-400 font-bold text-xs p-2 text-center">
-            ${safeName}
+          <div class="${product.imageUrl ? 'hidden' : 'flex'} w-full h-full flex-col items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-400 p-2 text-center gap-1.5">
+            ${Icons.package('w-7 h-7 text-slate-400/60 dark:text-slate-500/60')}
+            <span class="font-bold text-[11px] leading-tight text-slate-500 dark:text-slate-400 line-clamp-2">${safeName}</span>
           </div>
 
           <!-- Pastille de stock arrondie et colorée -->
