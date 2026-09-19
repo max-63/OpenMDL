@@ -1,7 +1,7 @@
 {
   "name": "openmdl",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Logiciel de caisse & gestion de foyer open source pour la Maison des Lycéens (MDL)",
   "type": "module",
   "scripts": {
