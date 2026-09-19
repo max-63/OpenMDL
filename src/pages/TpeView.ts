@@ -1,6 +1,7 @@
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
 import { SumUpService, SumUpMerchantProfile } from '../services/sumup';
+import { AppDialog } from '../components/AppDialog';
 
 export class TpeView {
   private onStateChange: () => void;
@@ -627,12 +628,19 @@ export class TpeView {
     // Déconnexion TPE (Réservé Délégué CVL / Admin)
     container.querySelector('#btn-disconnect-tpe')?.addEventListener('click', () => {
       if (!isAdmin) return;
-      if (confirm('Êtes-vous sûr de vouloir déconnecter le terminal SumUp ? Les paiements par carte au foyer seront suspendus.')) {
-        db.disconnectTpe();
-        this.showConnectModal = false;
-        this.renderContent(container);
-        this.onStateChange();
-      }
+      AppDialog.confirm({
+        title: 'Déconnexion du TPE',
+        message: 'Êtes-vous sûr de vouloir déconnecter le terminal SumUp ? Les paiements par carte au foyer seront suspendus.',
+        type: 'warning',
+        confirmText: 'Déconnecter',
+        cancelText: 'Annuler',
+        onConfirm: () => {
+          db.disconnectTpe();
+          this.showConnectModal = false;
+          this.renderContent(container);
+          this.onStateChange();
+        }
+      });
     });
 
     // Bouton pour afficher/masquer le Wizard de configuration (Réservé Délégué CVL / Admin)

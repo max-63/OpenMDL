@@ -1,4 +1,4 @@
-import { CartItem, PaymentMethod } from '../types';
+import { CartItem, PaymentMethod, EURO_DENOMINATIONS, decomposeCashAmount, calculateCashTotal } from '../types';
 import { db } from '../services/db';
 import { Icons } from './Icons';
 import { SumUpService } from '../services/sumup';
@@ -10,6 +10,7 @@ export class CheckoutModalComponent {
   private totalAmount = 0;
   private selectedMethod: PaymentMethod = 'especes';
   private cashGiven = 0;
+  private givenCounts: Record<string, number> = {};
   private onCompleteCallback: () => void;
 
   // État du paiement TPE SumUp
@@ -24,6 +25,7 @@ export class CheckoutModalComponent {
     this.items = items;
     this.totalAmount = items.reduce((sum, i) => sum + (i.product.price * i.quantity), 0);
     this.cashGiven = this.totalAmount;
+    this.givenCounts = decomposeCashAmount(this.totalAmount);
     this.onCompleteCallback = onComplete;
   }
 
@@ -185,9 +187,13 @@ export class CheckoutModalComponent {
   private render(): void {
     if (!this.container) return;
 
-    const changeDue = Math.max(0, this.cashGiven - this.totalAmount);
+    const changeDue = Number(Math.max(0, this.cashGiven - this.totalAmount).toFixed(2));
     const isCashValid = this.selectedMethod === 'especes' && this.cashGiven >= this.totalAmount;
     const tpe = db.getTpeSettings();
+    const billDenoms = EURO_DENOMINATIONS.filter(d => d.type === 'bill');
+    const coinDenoms = EURO_DENOMINATIONS.filter(d => d.type === 'coin');
+    const changeBreakdown = changeDue > 0 ? decomposeCashAmount(changeDue) : {};
+    const changeItems = Object.entries(changeBreakdown).filter(([_, count]) => count > 0);
 
     this.container.innerHTML = `
       <div class="relative w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden text-slate-900 dark:text-slate-100">
@@ -203,7 +209,7 @@ export class CheckoutModalComponent {
           </button>
         </div>
 
-        <div class="p-6 space-y-5">
+        <div class="p-6 space-y-4">
           
           <!-- Affichage du montant total -->
           <div class="p-4 rounded-2xl bg-orange-500/10 border border-orange-500/30 flex items-baseline justify-between shadow-xs">
@@ -238,59 +244,121 @@ export class CheckoutModalComponent {
             </button>
           </div>
 
-          <!-- Écran Espèces (avec boutons de monnaie rapides) -->
+          <!-- Écran Espèces (avec pièces et billets complets) -->
           ${this.selectedMethod === 'especes' ? `
-            <div class="space-y-4 pt-1">
+            <div class="space-y-3 pt-1">
               <div class="flex items-center justify-between text-xs">
-                <span class="text-slate-500 dark:text-slate-400 font-bold">Somme reçue</span>
-                <button id="btn-exact-amount" class="px-2.5 py-1 rounded-full bg-emerald-500/15 hover:bg-emerald-500 hover:text-white text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-bold font-mono-nums transition-all text-[11px]">
-                  Somme exacte (${this.totalAmount.toFixed(2)} €)
-                </button>
+                <span class="text-slate-500 dark:text-slate-400 font-bold">Somme reçue du client</span>
+                <div class="flex items-center gap-1.5">
+                  <button id="btn-exact-amount" type="button" class="px-2.5 py-1 rounded-full bg-emerald-500/15 hover:bg-emerald-500 hover:text-white text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-bold font-mono-nums transition-all text-[11px] cursor-pointer">
+                    Somme exacte (${this.totalAmount.toFixed(2)} €)
+                  </button>
+                  <button id="btn-reset-cash" type="button" class="px-2.5 py-1 rounded-full bg-rose-500/15 hover:bg-rose-500 hover:text-white text-rose-600 dark:text-rose-400 border border-rose-500/30 font-bold font-mono-nums transition-all text-[11px] cursor-pointer">
+                    Effacer (0 €)
+                  </button>
+                </div>
               </div>
 
               <!-- Champ montant reçu -->
               <div class="relative">
                 <input 
                   type="number" 
-                  step="0.10" 
+                  step="0.01" 
                   id="input-cash-given" 
                   value="${this.cashGiven.toFixed(2)}" 
-                  class="w-full text-2xl font-mono-nums font-black px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 text-right pr-9 shadow-inner"
+                  class="w-full text-2xl font-mono-nums font-black px-4 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 text-right pr-9 shadow-inner"
                 />
                 <span class="absolute right-3.5 top-1/2 -translate-y-1/2 text-base font-mono-nums font-bold text-slate-400">€</span>
               </div>
 
-              <!-- Boutons de monnaie rapides -->
-              <div class="grid grid-cols-4 sm:grid-cols-7 gap-1.5 pt-1">
-                <button data-quick-cash="0.50" class="py-2.5 px-2 rounded-xl bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-900 dark:text-amber-200 font-mono-nums font-black text-xs border border-amber-500/30 transition-all active:scale-95 shadow-2xs flex items-center justify-center text-center cursor-pointer">0.50 €</button>
-                <button data-quick-cash="1.00" class="py-2.5 px-2 rounded-xl bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-900 dark:text-amber-200 font-mono-nums font-black text-xs border border-amber-500/30 transition-all active:scale-95 shadow-2xs flex items-center justify-center text-center cursor-pointer">1 €</button>
-                <button data-quick-cash="2.00" class="py-2.5 px-2 rounded-xl bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-900 dark:text-amber-200 font-mono-nums font-black text-xs border border-amber-500/30 transition-all active:scale-95 shadow-2xs flex items-center justify-center text-center cursor-pointer">2 €</button>
-                <button data-quick-cash="5.00" class="py-2.5 px-2 rounded-xl bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-900 dark:text-amber-200 font-mono-nums font-black text-xs border border-amber-500/30 transition-all active:scale-95 shadow-2xs flex items-center justify-center text-center cursor-pointer">5 €</button>
-                <button data-quick-cash="10.00" class="py-2.5 px-2 rounded-xl bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-900 dark:text-amber-200 font-mono-nums font-black text-xs border border-amber-500/30 transition-all active:scale-95 shadow-2xs flex items-center justify-center text-center cursor-pointer">10 €</button>
-                <button data-quick-cash="20.00" class="py-2.5 px-2 rounded-xl bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-900 dark:text-amber-200 font-mono-nums font-black text-xs border border-amber-500/30 transition-all active:scale-95 shadow-2xs flex items-center justify-center text-center cursor-pointer">20 €</button>
-                <button id="btn-reset-cash" class="py-2.5 px-2 rounded-xl bg-rose-500/10 hover:bg-rose-500 hover:text-white text-rose-600 dark:text-rose-400 font-mono-nums font-black text-xs border border-rose-500/30 transition-all active:scale-95 shadow-2xs flex items-center justify-center text-center cursor-pointer">0 €</button>
+              <!-- Billets (50€, 20€, 10€, 5€) -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-[10px] uppercase font-bold text-slate-400">
+                  <span>Billets</span>
+                  <span class="text-[9px] lowercase font-normal">Clic: +1 / Clic-droit: -1</span>
+                </div>
+                <div class="grid grid-cols-4 gap-1.5">
+                  ${billDenoms.map(d => {
+                    const count = this.givenCounts[d.id] || 0;
+                    return `
+                      <button 
+                        type="button" 
+                        data-cash-denom="${d.id}" 
+                        class="relative py-2 px-1 rounded-xl ${
+                          count > 0 
+                            ? 'bg-orange-500 text-white border-orange-600 shadow-xs font-black' 
+                            : 'bg-orange-500/10 hover:bg-orange-500/20 text-orange-950 dark:text-orange-200 border-orange-500/30 font-bold'
+                        } font-mono text-xs border transition-all active:scale-95 flex items-center justify-center text-center cursor-pointer select-none"
+                        title="Clic pour ajouter (+1), Clic-droit pour retirer (-1)"
+                      >
+                        ${d.label}
+                        ${count > 0 ? `<span class="absolute -top-1.5 -right-1 px-1.5 py-0.2 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-mono text-[9px] font-black shadow-xs">x${count}</span>` : ''}
+                      </button>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+
+              <!-- Pièces (2€, 1€, 0.50€, 0.20€, 0.10€, 0.05€, 0.02€, 0.01€) -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-[10px] uppercase font-bold text-slate-400">
+                  <span>Pièces</span>
+                  <span class="text-[9px] lowercase font-normal">Clic: +1 / Clic-droit: -1</span>
+                </div>
+                <div class="grid grid-cols-4 gap-1.5">
+                  ${coinDenoms.map(d => {
+                    const count = this.givenCounts[d.id] || 0;
+                    return `
+                      <button 
+                        type="button" 
+                        data-cash-denom="${d.id}" 
+                        class="relative py-2 px-1 rounded-xl ${
+                          count > 0 
+                            ? 'bg-amber-500 text-slate-950 border-amber-600 font-black shadow-xs' 
+                            : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-950 dark:text-amber-200 border-amber-500/30 font-bold'
+                        } font-mono text-xs border transition-all active:scale-95 flex items-center justify-center text-center cursor-pointer select-none"
+                        title="Clic pour ajouter (+1), Clic-droit pour retirer (-1)"
+                      >
+                        ${d.label}
+                        ${count > 0 ? `<span class="absolute -top-1.5 -right-1 px-1.5 py-0.2 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-mono text-[9px] font-black shadow-xs">x${count}</span>` : ''}
+                      </button>
+                    `;
+                  }).join('')}
+                </div>
               </div>
 
               <!-- Ligne Rendu de monnaie -->
-              <div class="p-4 rounded-2xl ${
+              <div class="p-3 rounded-2xl ${
                 this.cashGiven < this.totalAmount
                   ? 'bg-rose-500/15 border border-rose-500/40 text-rose-700 dark:text-rose-300'
                   : 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-800 dark:text-emerald-300'
-              } flex items-center justify-between shadow-xs">
-                <span class="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
-                  ${this.cashGiven < this.totalAmount ? Icons.alertTriangle('w-4 h-4') : Icons.banknote('w-4 h-4')}
-                  <span>${this.cashGiven < this.totalAmount ? 'Somme Insuffisante' : 'Rendu de monnaie'}</span>
-                </span>
-                <span class="font-mono-nums font-black text-2xl">
-                  ${this.cashGiven < this.totalAmount ? `-${(this.totalAmount - this.cashGiven).toFixed(2)} €` : `${changeDue.toFixed(2)} €`}
-                </span>
+              } space-y-1.5 shadow-xs">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                    ${this.cashGiven < this.totalAmount ? Icons.alertTriangle('w-4 h-4') : Icons.banknote('w-4 h-4')}
+                    <span>${this.cashGiven < this.totalAmount ? 'Somme Insuffisante' : 'Rendu de monnaie'}</span>
+                  </span>
+                  <span class="font-mono-nums font-black text-xl">
+                    ${this.cashGiven < this.totalAmount ? `-${(this.totalAmount - this.cashGiven).toFixed(2)} €` : `${changeDue.toFixed(2)} €`}
+                  </span>
+                </div>
+                ${this.cashGiven >= this.totalAmount && changeItems.length > 0 ? `
+                  <div class="flex flex-wrap items-center gap-1 pt-1.5 border-t border-emerald-500/20 text-[10px]">
+                    <span class="font-bold opacity-80">À rendre :</span>
+                    ${changeItems.map(([id, cnt]) => `
+                      <span class="px-1.5 py-0.5 rounded-md bg-emerald-600/20 dark:bg-emerald-400/20 font-mono font-black">
+                        ${cnt}x ${EURO_DENOMINATIONS.find(d => d.id === id)?.label || id + '€'}
+                      </span>
+                    `).join('')}
+                  </div>
+                ` : ''}
               </div>
 
               <!-- Bouton de validation Espèces -->
-              <div class="pt-2">
+              <div class="pt-1">
                 <button 
                   id="btn-confirm-cash" 
-                  class="w-full py-4 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-base flex items-center justify-center gap-2 shadow-sm shadow-emerald-600/25 active:scale-[0.98] transition-all disabled:opacity-30 disabled:pointer-events-none"
+                  class="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-base flex items-center justify-center gap-2 shadow-sm shadow-emerald-600/25 active:scale-[0.98] transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
                   ${!isCashValid ? 'disabled' : ''}
                 >
                   ${Icons.check('w-5 h-5')}
@@ -529,23 +597,37 @@ export class CheckoutModalComponent {
 
     this.container.querySelector('#btn-exact-amount')?.addEventListener('click', () => {
       this.cashGiven = this.totalAmount;
+      this.givenCounts = decomposeCashAmount(this.totalAmount);
       this.render();
     });
 
     this.container.querySelector('#btn-reset-cash')?.addEventListener('click', () => {
       this.cashGiven = 0;
+      this.givenCounts = {};
       this.render();
     });
 
-    this.container.querySelectorAll('[data-quick-cash]').forEach(btn => {
+    this.container.querySelectorAll('[data-cash-denom]').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const val = parseFloat((e.currentTarget as HTMLElement).getAttribute('data-quick-cash') || '0');
-        if (this.cashGiven === this.totalAmount) {
-          this.cashGiven = val;
-        } else {
-          this.cashGiven = Number((this.cashGiven + val).toFixed(2));
-        }
+        const id = (e.currentTarget as HTMLElement).getAttribute('data-cash-denom') || '';
+        if (!id) return;
+        this.givenCounts[id] = (this.givenCounts[id] || 0) + 1;
+        this.cashGiven = calculateCashTotal(this.givenCounts);
         this.render();
+      });
+
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const id = (e.currentTarget as HTMLElement).getAttribute('data-cash-denom') || '';
+        if (!id) return;
+        if (this.givenCounts[id] && this.givenCounts[id] > 0) {
+          this.givenCounts[id]--;
+          if (this.givenCounts[id] === 0) {
+            delete this.givenCounts[id];
+          }
+          this.cashGiven = calculateCashTotal(this.givenCounts);
+          this.render();
+        }
       });
     });
 
@@ -553,7 +635,14 @@ export class CheckoutModalComponent {
     if (cashInput) {
       cashInput.addEventListener('input', () => {
         this.cashGiven = parseFloat(cashInput.value) || 0;
+        this.givenCounts = decomposeCashAmount(this.cashGiven);
         this.render();
+        const reInput = this.container?.querySelector('#input-cash-given') as HTMLInputElement;
+        if (reInput) {
+          reInput.focus();
+          const valLen = reInput.value.length;
+          reInput.setSelectionRange(valLen, valLen);
+        }
       });
     }
 
@@ -621,12 +710,23 @@ export class CheckoutModalComponent {
       totalPrice: item.product.price * item.quantity
     }));
 
+    if (Object.keys(this.givenCounts).length === 0 && this.cashGiven > 0) {
+      this.givenCounts = decomposeCashAmount(this.cashGiven);
+    }
+
+    const changeDue = Number(Math.max(0, this.cashGiven - this.totalAmount).toFixed(2));
+    const changeBreakdown = changeDue > 0 ? decomposeCashAmount(changeDue) : undefined;
+
     db.recordSale({
       items: saleItems,
       totalAmount: this.totalAmount,
       paymentMethod: 'especes',
       cashReceived: this.cashGiven,
-      cashReturned: Math.max(0, this.cashGiven - this.totalAmount)
+      cashReturned: changeDue,
+      cashBreakdown: {
+        given: { ...this.givenCounts },
+        returned: changeBreakdown
+      }
     });
 
     this.hide();

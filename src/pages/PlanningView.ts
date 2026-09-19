@@ -1,6 +1,7 @@
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
 import { Session, Volunteer } from '../types';
+import { AppDialog } from '../components/AppDialog';
 
 export class PlanningView {
   private selectedMonday: Date;
@@ -645,6 +646,36 @@ export class PlanningView {
               </div>
             </div>
 
+            <!-- Décaisse & Fond de Caisse de la Séance -->
+            ${session.cashWithdrawal ? `
+              <div class="space-y-2">
+                <span class="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Fond de Caisse & Décaisse</span>
+                <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2.5">
+                  <div class="grid grid-cols-3 gap-2 text-center font-mono">
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-750">
+                      <span class="text-[9px] font-sans font-bold text-slate-400 uppercase block">Total Compté</span>
+                      <span class="text-xs font-black text-slate-800 dark:text-slate-100">${session.cashWithdrawal.totalCounted.toFixed(2)} €</span>
+                    </div>
+                    <div class="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                      <span class="text-[9px] font-sans font-bold uppercase block">Décaissé</span>
+                      <span class="text-xs font-black">${session.cashWithdrawal.totalWithdrawn.toFixed(2)} €</span>
+                    </div>
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-750">
+                      <span class="text-[9px] font-sans font-bold text-slate-400 uppercase block">Fond Restant</span>
+                      <span class="text-xs font-black text-slate-800 dark:text-slate-100">${session.cashWithdrawal.totalRemainingFloat.toFixed(2)} €</span>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center justify-between text-xs px-1">
+                    <span class="text-slate-500 font-sans">Écart de caisse :</span>
+                    <span class="font-mono font-bold ${Math.abs(session.cashWithdrawal.cashDiscrepancy) < 0.005 ? 'text-emerald-600 dark:text-emerald-400' : session.cashWithdrawal.cashDiscrepancy > 0 ? 'text-sky-600 dark:text-sky-400' : 'text-rose-600 dark:text-rose-400'}">
+                      ${session.cashWithdrawal.cashDiscrepancy >= 0 ? '+' : ''}${session.cashWithdrawal.cashDiscrepancy.toFixed(2)} €
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ` : ''}
+
             <!-- Notes de clôture / incidents -->
             <div class="space-y-1.5">
               <span class="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Rapport de permanence</span>
@@ -697,11 +728,18 @@ export class PlanningView {
 
     // Recharger Démo
     container.querySelector('#btn-reseed-planning')?.addEventListener('click', () => {
-      if (confirm('Voulez-vous régénérer les permanences de démonstration complètes sur les 4 dernières semaines ?')) {
-        db.seedDemoSessions();
-        if (this.onDataChange) this.onDataChange();
-        this.refresh(container);
-      }
+      AppDialog.confirm({
+        title: 'Régénérer les permanences',
+        message: 'Voulez-vous régénérer les permanences de démonstration complètes sur les 4 dernières semaines ?',
+        type: 'warning',
+        confirmText: 'Régénérer',
+        cancelText: 'Annuler',
+        onConfirm: () => {
+          db.seedDemoSessions();
+          if (this.onDataChange) this.onDataChange();
+          this.refresh(container);
+        }
+      });
     });
 
     // Clic sur une séance pour ouvrir la modal de détail

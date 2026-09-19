@@ -16,12 +16,12 @@ export class ProductCardComponent {
     const safeCategory = escapeHtml(product.category);
     const safeImageUrl = escapeHtml(product.imageUrl);
 
-    card.className = `group relative flex flex-col justify-between rounded-2xl bg-white dark:bg-slate-900 border transition-all duration-200 overflow-hidden shadow-xs hover:shadow-md ${
+    card.className = `group relative flex flex-col justify-between rounded-2xl bg-white dark:bg-slate-900 border transition-all duration-200 overflow-hidden shadow-xs hover:shadow-md select-none ${
       isOutOfStock
         ? 'border-slate-200 dark:border-slate-800 opacity-40 grayscale pointer-events-none'
         : cartQuantity > 0
-        ? 'border-orange-500 ring-2 ring-orange-500/30 shadow-md shadow-orange-500/10'
-        : 'border-slate-200 dark:border-slate-800 hover:border-orange-300 dark:hover:border-slate-700 hover:-translate-y-0.5'
+        ? 'border-orange-500 ring-2 ring-orange-500/30 shadow-md shadow-orange-500/10 cursor-pointer active:scale-[0.98]'
+        : 'border-slate-200 dark:border-slate-800 hover:border-orange-300 dark:hover:border-slate-700 hover:-translate-y-0.5 cursor-pointer active:scale-[0.98]'
     }`;
 
     // Helper de catégorie pour badge couleur
@@ -113,6 +113,23 @@ export class ProductCardComponent {
         </div>
       </div>
     `;
+
+    // Clic sur toute la carte pour ajouter 1 automatiquement avec animation
+    card.addEventListener('click', () => {
+      if (isOutOfStock || cartQuantity >= product.stock) return;
+
+      card.animate([
+        { transform: 'scale(1)' },
+        { transform: 'scale(0.95)' },
+        { transform: 'scale(1.02)' },
+        { transform: 'scale(1)' }
+      ], {
+        duration: 220,
+        easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)'
+      });
+
+      onAdd(product);
+    });
 
     card.querySelector('[data-action="card-minus"]')?.addEventListener('click', (e) => {
       e.stopPropagation();

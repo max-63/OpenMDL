@@ -1,8 +1,10 @@
 import { Volunteer, Session } from '../types';
 import { db } from '../services/db';
 import { addonManager } from '../services/addonManager';
+import { syncService } from '../services/syncService';
 import { Icons } from './Icons';
 import { CloseSessionModalComponent } from './CloseSessionModal';
+import { AppDialog } from './AppDialog';
 
 export class HeaderComponent {
   private currentTab: string;
@@ -20,6 +22,7 @@ export class HeaderComponent {
     header.className = 'w-full rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800/80 shadow-md flex-shrink-0 z-30 px-4 sm:px-6';
 
     const isDark = document.documentElement.classList.contains('dark');
+    const syncConfig = syncService.getConfig();
 
     header.innerHTML = `
       <div class="flex items-center justify-between h-14">
@@ -113,6 +116,27 @@ export class HeaderComponent {
 
           <!-- Actions Droite -->
           <div class="flex items-center gap-3">
+
+            <!-- Badge Statut Réseau / Synchronisation -->
+            ${syncConfig.mode === 'lan' ? `
+              ${syncConfig.lan.role === 'server' ? `
+                <button data-tab="settings" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-bold cursor-pointer transition-colors" title="Serveur LAN actif - Cliquer pour ouvrir les réglages">
+                  <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>Serveur LAN</span>
+                </button>
+              ` : `
+                <button id="btn-header-sync-now" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-[11px] font-bold cursor-pointer transition-colors" title="Client LAN - Cliquer pour synchroniser avec la caisse">
+                  <span class="w-2 h-2 rounded-full ${syncService.currentStatus === 'error' ? 'bg-rose-500' : 'bg-sky-500'}"></span>
+                  <span>Synchro LAN</span>
+                  ${Icons.refresh('w-3 h-3')}
+                </button>
+              `}
+            ` : syncConfig.mode === 'usb' ? `
+              <button data-tab="settings" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[11px] font-bold cursor-pointer transition-colors" title="Mode Clé USB actif - Cliquer pour ouvrir les réglages">
+                ${Icons.folder('w-3.5 h-3.5')}
+                <span>Clé USB</span>
+              </button>
+            ` : ''}
             
             <!-- Crédits & Mentions Légales -->
             <button data-tab="credits" class="p-2 rounded-xl transition-all cursor-pointer ${this.currentTab === 'credits' ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400' : 'text-slate-500 hover:text-orange-500 hover:bg-orange-500/10'}" title="Crédits & Mentions Légales">
@@ -190,6 +214,14 @@ export class HeaderComponent {
       this.onTabChange(this.currentTab);
     });
 
+    header.querySelector('#btn-header-sync-now')?.addEventListener('click', async () => {
+      const btn = header.querySelector('#btn-header-sync-now') as HTMLButtonElement;
+      if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+      await syncService.syncFromLanServer();
+      if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+      this.onTabChange(this.currentTab);
+    });
+
     header.querySelector('#btn-close-session')?.addEventListener('click', () => {
       const modal = new CloseSessionModalComponent(() => {
         this.onLogout();
@@ -198,10 +230,17 @@ export class HeaderComponent {
     });
 
     header.querySelector('#btn-logout')?.addEventListener('click', () => {
-      if (confirm('Voulez-vous vous déconnecter ? Une sauvegarde automatique de la base de données sera créée.')) {
-        db.logout();
-        this.onLogout();
-      }
+      AppDialog.confirm({
+        title: 'Déconnexion',
+        message: 'Voulez-vous vous déconnecter ? Une sauvegarde automatique de la base de données sera créée.',
+        type: 'warning',
+        confirmText: 'Se déconnecter',
+        cancelText: 'Rester',
+        onConfirm: () => {
+          db.logout();
+          this.onLogout();
+        }
+      });
     });
 
     // Gestionnaires des contrôles de fenêtre Tauri (Minimiser, Agrandir, Fermer)

@@ -3,6 +3,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use tauri::Manager;
 
+mod lan_server;
+
 fn get_app_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     app_handle
         .path()
@@ -232,6 +234,44 @@ fn read_dir_recursive(
     Ok(())
 }
 
+#[tauri::command]
+fn start_lan_server(port: u16, pin: Option<String>, db_json: String) -> Result<lan_server::LanServerInfo, String> {
+    lan_server::start_server(port, pin, db_json)
+}
+
+#[tauri::command]
+fn stop_lan_server() -> Result<(), String> {
+    lan_server::stop_server()
+}
+
+#[tauri::command]
+fn get_lan_server_info() -> Result<lan_server::LanServerInfo, String> {
+    Ok(lan_server::get_server_status())
+}
+
+#[tauri::command]
+fn update_lan_server_db(db_json: String) -> Result<(), String> {
+    lan_server::update_server_db(db_json)
+}
+
+#[tauri::command]
+fn get_local_ip() -> Result<String, String> {
+    Ok(lan_server::get_local_ip())
+}
+
+#[tauri::command]
+fn write_file_to_path(file_path: String, content: String) -> Result<(), String> {
+    if let Some(parent) = std::path::Path::new(&file_path).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&file_path, content).map_err(|e| format!("Impossible d'ecrire le fichier sur {}: {}", file_path, e))
+}
+
+#[tauri::command]
+fn read_file_from_path(file_path: String) -> Result<String, String> {
+    fs::read_to_string(&file_path).map_err(|e| format!("Impossible de lire le fichier sur {}: {}", file_path, e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -254,6 +294,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let _ = lan_server::stop_server();
                 window.app_handle().exit(0);
             }
         })
@@ -262,7 +303,14 @@ pub fn run() {
             append_log,
             exit_app,
             open_in_external_editor,
-            read_addon_files_from_disk
+            read_addon_files_from_disk,
+            start_lan_server,
+            stop_lan_server,
+            get_lan_server_info,
+            update_lan_server_db,
+            get_local_ip,
+            write_file_to_path,
+            read_file_from_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

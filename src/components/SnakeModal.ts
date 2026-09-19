@@ -1,6 +1,7 @@
 import { db } from '../services/db';
 import { Icons } from './Icons';
 import { escapeHtml } from '../utils/security';
+import { AppDialog } from './AppDialog';
 
 export class SnakeModalComponent {
   private container: HTMLElement | null = null;
@@ -373,10 +374,17 @@ export class SnakeModalComponent {
     });
 
     this.container.querySelector('#btn-clear-scores')?.addEventListener('click', () => {
-      if (confirm('Voulez-vous vraiment effacer tous les scores enregistrés du classement ?')) {
-        db.clearPacmanScores();
-        this.render();
-      }
+      AppDialog.confirm({
+        title: 'Effacer le classement',
+        message: 'Voulez-vous vraiment effacer tous les scores enregistrés du classement ? Cette action est irréversible.',
+        type: 'danger',
+        confirmText: 'Effacer tout',
+        cancelText: 'Annuler',
+        onConfirm: () => {
+          db.clearPacmanScores();
+          this.render();
+        }
+      });
     });
 
     this.container.querySelector('#btn-pacman-reload')?.addEventListener('click', () => {

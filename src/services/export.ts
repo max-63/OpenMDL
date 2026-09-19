@@ -1,4 +1,5 @@
 import { Sale, Session } from '../types';
+import { AppDialog } from '../components/AppDialog';
 
 export class ExportService {
   /**
@@ -6,7 +7,11 @@ export class ExportService {
    */
   public static exportSalesToCSV(sales: Sale[]): void {
     if (sales.length === 0) {
-      alert('Aucune vente à exporter pour le moment.');
+      AppDialog.alert({
+        title: 'Export impossible',
+        message: 'Aucune vente à exporter pour le moment.',
+        type: 'info'
+      });
       return;
     }
 
@@ -36,14 +41,36 @@ export class ExportService {
    */
   public static exportSessionsToCSV(sessions: Session[]): void {
     if (sessions.length === 0) {
-      alert('Aucune séance clôturée à exporter.');
+      AppDialog.alert({
+        title: 'Export impossible',
+        message: 'Aucune séance clôturée à exporter.',
+        type: 'info'
+      });
       return;
     }
 
-    const headers = ['ID Séance', 'Début', 'Fin', 'Bénévole', 'Nb Ventes', 'Recette Espèces (€)', 'Recette TPE (€)', 'Total Recette (€)', 'Cahier Incidents & Notes'];
+    const headers = [
+      'ID Séance',
+      'Début',
+      'Fin',
+      'Bénévole',
+      'Nb Ventes',
+      'Recette Espèces (€)',
+      'Recette TPE (€)',
+      'Total Recette (€)',
+      'Total Compté Tiroir (€)',
+      'Montant Décaissé (€)',
+      'Fond Restant (€)',
+      'Écart Caisse (€)',
+      'Cahier Incidents & Notes'
+    ];
     const rows = sessions.map(sess => {
       const startFormatted = new Date(sess.startTime).toLocaleString('fr-FR');
       const endFormatted = sess.endTime ? new Date(sess.endTime).toLocaleString('fr-FR') : 'En cours';
+      const countedStr = sess.cashWithdrawal ? sess.cashWithdrawal.totalCounted.toFixed(2).replace('.', ',') : '-';
+      const withdrawnStr = sess.cashWithdrawal ? sess.cashWithdrawal.totalWithdrawn.toFixed(2).replace('.', ',') : '-';
+      const remainingStr = sess.cashWithdrawal ? sess.cashWithdrawal.totalRemainingFloat.toFixed(2).replace('.', ',') : '-';
+      const discrepancyStr = sess.cashWithdrawal ? sess.cashWithdrawal.cashDiscrepancy.toFixed(2).replace('.', ',') : '-';
 
       return [
         `"${sess.id}"`,
@@ -54,6 +81,10 @@ export class ExportService {
         sess.totalCash.toFixed(2).replace('.', ','),
         sess.totalTpe.toFixed(2).replace('.', ','),
         sess.totalSales.toFixed(2).replace('.', ','),
+        countedStr,
+        withdrawnStr,
+        remainingStr,
+        discrepancyStr,
         `"${(sess.incidentNotes || 'R.A.S.').replace(/"/g, '""')}"`
       ].join(';');
     });

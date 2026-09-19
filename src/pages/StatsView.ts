@@ -2,6 +2,7 @@ import { db } from '../services/db';
 import { ExportService } from '../services/export';
 import { AnalyticsCharts } from '../components/AnalyticsCharts';
 import { Icons } from '../components/Icons';
+import { AppDialog } from '../components/AppDialog';
 
 export class StatsView {
   private perkSuccessMessage: string | null = null;
@@ -612,7 +613,11 @@ export class StatsView {
         this.perkSuccessMessage = result.message;
         this.renderContent(container);
       } else {
-        alert(result.message);
+        AppDialog.alert({
+          title: 'Collation non disponible',
+          message: result.message,
+          type: 'warning'
+        });
       }
     });
   }

@@ -1,4 +1,4 @@
-import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore, PerkSettings, PerkEligibilityRule } from '../types';
+import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore, PerkSettings, PerkEligibilityRule, CashFloatSettings, SessionCashWithdrawal, EURO_DENOMINATIONS, decomposeCashAmount } from '../types';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'openmdl_products',
@@ -14,7 +14,8 @@ const STORAGE_KEYS = {
   TPE_SETTINGS: 'openmdl_tpe_settings',
   TPE_LOGS: 'openmdl_tpe_logs',
   SNAKE_SCORES: 'openmdl_snake_scores',
-  PACMAN_SCORES: 'openmdl_pacman_scores'
+  PACMAN_SCORES: 'openmdl_pacman_scores',
+  CASH_FLOAT_SETTINGS: 'openmdl_cash_float_settings'
 };
 
 export const DEFAULT_PERK_SETTINGS: PerkSettings = {
@@ -22,6 +23,22 @@ export const DEFAULT_PERK_SETTINGS: PerkSettings = {
   rule: 'items_sold',
   threshold: 10,
   allowMultiplePerDay: false
+};
+
+export const DEFAULT_CASH_FLOAT_SETTINGS: CashFloatSettings = {
+  enabled: true,
+  baseCounts: {
+    '20': 1,
+    '10': 2,
+    '5': 4,
+    '2': 10,
+    '1': 20,
+    '0.50': 20,
+    '0.20': 20,
+    '0.10': 10
+  },
+  lastRemainingCounts: {},
+  carriedOverDifferences: {}
 };
 
 export interface ActivityLog {
@@ -45,7 +62,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.70,
     stock: 24,
     minStockAlert: 8,
-    imageUrl: '/products/kinder-bueno.jpg',
+    imageUrl: '/products/kinder_bueno.jpeg',
     isActive: true
   },
   {
@@ -56,7 +73,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.50,
     stock: 36,
     minStockAlert: 12,
-    imageUrl: '/products/coca-cola.jpg',
+    imageUrl: '/products/coca.jpg',
     isActive: true
   },
   {
@@ -67,7 +84,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.48,
     stock: 18,
     minStockAlert: 10,
-    imageUrl: '/products/oasis-tropical.jpg',
+    imageUrl: '/products/oasis.webp',
     isActive: true
   },
   {
@@ -78,7 +95,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.49,
     stock: 6,
     minStockAlert: 10,
-    imageUrl: '/products/fuze-tea-peche.jpg',
+    imageUrl: '/products/ice_tea.jpeg',
     isActive: true
   },
   {
@@ -89,7 +106,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.55,
     stock: 15,
     minStockAlert: 6,
-    imageUrl: '/products/kitkat.jpg',
+    imageUrl: '/products/kitkat.webp',
     isActive: true
   },
   {
@@ -100,7 +117,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.65,
     stock: 20,
     minStockAlert: 8,
-    imageUrl: '/products/mms-peanut.jpg',
+    imageUrl: '/products/m&m.jpg',
     isActive: true
   },
   {
@@ -111,7 +128,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.40,
     stock: 30,
     minStockAlert: 10,
-    imageUrl: '/products/haribo-dragibus.jpg',
+    imageUrl: '/products/dragibus.webp',
     isActive: true
   },
   {
@@ -122,7 +139,7 @@ const DEMO_PRODUCTS: Product[] = [
     costPrice: 0.35,
     stock: 4,
     minStockAlert: 12,
-    imageUrl: '/products/capri-sun.jpg',
+    imageUrl: '/products/caprisun.jpg',
     isActive: true
   },
   {
@@ -259,6 +276,7 @@ class DatabaseService {
   private logs: ActivityLog[] = [];
   private volunteerPerks: VolunteerPerk[] = [];
   private perkSettings: PerkSettings = { ...DEFAULT_PERK_SETTINGS };
+  private cashFloatSettings: CashFloatSettings = { ...DEFAULT_CASH_FLOAT_SETTINGS };
   private tpeSettings: TpeSettings = DEFAULT_TPE_SETTINGS;
   private tpeLogs: TpePaymentLog[] = [];
   private snakeScores: SnakeScore[] = [];
@@ -285,15 +303,13 @@ class DatabaseService {
       const storedProds = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
       this.products = storedProds ? JSON.parse(storedProds) : INITIAL_PRODUCTS;
 
-      // Migration automatique des images d'exemple vers les fichiers locaux hors-ligne
+      // Migration automatique des images d'exemple vers les nouveaux fichiers locaux hors-ligne
       let prodsMigrated = false;
       this.products = this.products.map(p => {
-        if (!p.imageUrl || p.imageUrl.includes('unsplash.com') || p.imageUrl.startsWith('http')) {
-          const match = DEMO_PRODUCTS.find(dp => dp.id === p.id || dp.name.trim().toLowerCase() === p.name.trim().toLowerCase());
-          if (match) {
-            prodsMigrated = true;
-            return { ...p, imageUrl: match.imageUrl };
-          }
+        const match = DEMO_PRODUCTS.find(dp => dp.id === p.id || dp.name.trim().toLowerCase() === p.name.trim().toLowerCase());
+        if (match && p.imageUrl !== match.imageUrl) {
+          prodsMigrated = true;
+          return { ...p, imageUrl: match.imageUrl };
         }
         return p;
       });
@@ -355,6 +371,22 @@ class DatabaseService {
         ? { ...DEFAULT_PERK_SETTINGS, ...JSON.parse(storedPerkSettings) }
         : { ...DEFAULT_PERK_SETTINGS };
 
+      const storedCashFloat = localStorage.getItem(STORAGE_KEYS.CASH_FLOAT_SETTINGS);
+      if (storedCashFloat) {
+        try {
+          const parsed = JSON.parse(storedCashFloat);
+          this.cashFloatSettings = {
+            ...DEFAULT_CASH_FLOAT_SETTINGS,
+            ...parsed,
+            baseCounts: { ...DEFAULT_CASH_FLOAT_SETTINGS.baseCounts, ...(parsed.baseCounts || {}) },
+            lastRemainingCounts: parsed.lastRemainingCounts || {},
+            carriedOverDifferences: parsed.carriedOverDifferences || {}
+          };
+        } catch {
+          this.cashFloatSettings = { ...DEFAULT_CASH_FLOAT_SETTINGS };
+        }
+      }
+
       const storedTpe = localStorage.getItem(STORAGE_KEYS.TPE_SETTINGS);
       this.tpeSettings = storedTpe ? JSON.parse(storedTpe) : DEFAULT_TPE_SETTINGS;
 
@@ -369,15 +401,15 @@ class DatabaseService {
           // Éliminer tous les faux scores de démonstration inventés
           const fakeNames = ['jérémy', 'jeremy', 'thomas m.', 'thomas'];
           this.snakeScores = Array.isArray(parsed)
-            ? parsed.filter((s: any) => 
-                s && typeof s === 'object' && 
-                s.playerName &&
-                !fakeNames.includes(String(s.playerName).toLowerCase().trim()) &&
-                !['s1', 's2', 's3'].includes(s.id) &&
-                !(s.score === 140 && String(s.playerName).includes('Jér')) &&
-                !(s.score === 90 && String(s.playerName).includes('Thom')) &&
-                !(s.score === 80 && String(s.playerName).includes('Adri'))
-              )
+            ? parsed.filter((s: any) =>
+              s && typeof s === 'object' &&
+              s.playerName &&
+              !fakeNames.includes(String(s.playerName).toLowerCase().trim()) &&
+              !['s1', 's2', 's3'].includes(s.id) &&
+              !(s.score === 140 && String(s.playerName).includes('Jér')) &&
+              !(s.score === 90 && String(s.playerName).includes('Thom')) &&
+              !(s.score === 80 && String(s.playerName).includes('Adri'))
+            )
             : [];
         } catch {
           this.snakeScores = [];
@@ -403,25 +435,33 @@ class DatabaseService {
       this.volunteers = INITIAL_VOLUNTEERS;
     }
   }
+  private onDbChanged(): void {
+    import('./syncService').then(m => m.syncService.notifyLocalDbChanged()).catch(() => { });
+  }
 
   public saveProducts(): void {
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(this.products));
+    this.onDbChanged();
   }
 
   public saveSales(): void {
     localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(this.sales));
+    this.onDbChanged();
   }
 
   public saveSessions(): void {
     localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
+    this.onDbChanged();
   }
 
   public saveVolunteers(): void {
     localStorage.setItem(STORAGE_KEYS.VOLUNTEERS, JSON.stringify(this.volunteers));
+    this.onDbChanged();
   }
 
   public saveRestocks(): void {
     localStorage.setItem(STORAGE_KEYS.RESTOCKS, JSON.stringify(this.restocks));
+    this.onDbChanged();
   }
 
   public saveLogs(): void {
@@ -430,6 +470,11 @@ class DatabaseService {
 
   public savePerkSettings(): void {
     localStorage.setItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
+  }
+
+  public saveCashFloatSettings(): void {
+    localStorage.setItem(STORAGE_KEYS.CASH_FLOAT_SETTINGS, JSON.stringify(this.cashFloatSettings));
+    this.onDbChanged();
   }
 
 
@@ -805,8 +850,8 @@ class DatabaseService {
   public getPacmanScores(): PacmanScore[] {
     const fakeNames = ['jérémy', 'jeremy', 'thomas m.', 'thomas'];
     return this.snakeScores
-      .filter(s => 
-        s && typeof s === 'object' && 
+      .filter(s =>
+        s && typeof s === 'object' &&
         s.playerName &&
         !fakeNames.includes(String(s.playerName).toLowerCase().trim()) &&
         !['s1', 's2', 's3'].includes(s.id) &&
@@ -882,10 +927,13 @@ class DatabaseService {
     }
   }
 
-  public saveSessionDraft(draftNotes: string, draftPerkProductId?: string): void {
+  public saveSessionDraft(draftNotes: string, draftPerkProductId?: string, draftCashCounts?: Record<string, number>): void {
     if (!this.activeSession) return;
     this.activeSession.draftNotes = draftNotes;
     this.activeSession.draftPerkProductId = draftPerkProductId;
+    if (draftCashCounts) {
+      this.activeSession.draftCashCounts = { ...draftCashCounts };
+    }
     this.saveActiveSession();
   }
 
@@ -893,10 +941,15 @@ class DatabaseService {
     if (!this.activeSession) return;
     delete this.activeSession.draftNotes;
     delete this.activeSession.draftPerkProductId;
+    delete this.activeSession.draftCashCounts;
     this.saveActiveSession();
   }
 
-  public closeSession(incidentNotes: string, perkProductId?: string): { session: Session; backupName: string; perkResult?: { success: boolean; message: string } } {
+  public closeSession(
+    incidentNotes: string,
+    perkProductId?: string,
+    cashWithdrawal?: SessionCashWithdrawal
+  ): { session: Session; backupName: string; perkResult?: { success: boolean; message: string } } {
     if (!this.activeSession) {
       throw new Error('Aucune séance active à clôturer');
     }
@@ -909,8 +962,30 @@ class DatabaseService {
     this.activeSession.endTime = new Date().toISOString();
     this.activeSession.status = 'closed';
     this.activeSession.incidentNotes = incidentNotes.trim();
+
+    if (cashWithdrawal) {
+      this.activeSession.cashWithdrawal = cashWithdrawal;
+
+      // Mémoriser l'état restant du fond de caisse et les reports pour la prochaine séance
+      const newLastRemainingCounts: Record<string, number> = {};
+      const newCarriedOverDifferences: Record<string, number> = {};
+
+      for (const item of cashWithdrawal.items) {
+        newLastRemainingCounts[item.id] = item.remainingCount;
+        const diff = item.remainingCount - item.baseCount;
+        if (diff !== 0) {
+          newCarriedOverDifferences[item.id] = diff;
+        }
+      }
+
+      this.cashFloatSettings.lastRemainingCounts = newLastRemainingCounts;
+      this.cashFloatSettings.carriedOverDifferences = newCarriedOverDifferences;
+      this.saveCashFloatSettings();
+    }
+
     delete this.activeSession.draftNotes;
     delete this.activeSession.draftPerkProductId;
+    delete this.activeSession.draftCashCounts;
 
     this.sessions.unshift({ ...this.activeSession });
     this.saveSessions();
@@ -918,7 +993,11 @@ class DatabaseService {
     const closedSession = { ...this.activeSession };
     const volName = this.activeSession.volunteerName;
 
-    this.logActivity('SESSION', `Clôture séance par ${volName}. Ventes: ${closedSession.totalSales.toFixed(2)}€ (${closedSession.salesCount} ventes). Notes: ${incidentNotes || 'Aucun incident'}${perkResult?.success ? ` - Conso offerte: ${perkResult.message}` : ''}`);
+    const withdrawalLog = cashWithdrawal
+      ? ` - Décaisse: ${cashWithdrawal.totalWithdrawn.toFixed(2)}€ (Fond restant: ${cashWithdrawal.totalRemainingFloat.toFixed(2)}€, Écart: ${cashWithdrawal.cashDiscrepancy >= 0 ? '+' : ''}${cashWithdrawal.cashDiscrepancy.toFixed(2)}€)`
+      : '';
+
+    this.logActivity('SESSION', `Clôture séance par ${volName}. Ventes: ${closedSession.totalSales.toFixed(2)}€ (${closedSession.salesCount} ventes). Notes: ${incidentNotes || 'Aucun incident'}${perkResult?.success ? ` - Conso offerte: ${perkResult.message}` : ''}${withdrawalLog}`);
 
     // Création du backup horodaté de clôture
     const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -931,6 +1010,14 @@ class DatabaseService {
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
 
     (window as any).OpenMDL?.events.emit('session:closed', closedSession);
+
+    // Export USB automatique si activé
+    import('./syncService').then(m => {
+      const cfg = m.syncService.getConfig();
+      if (cfg.mode === 'usb' && cfg.usb.autoSyncOnClose && cfg.usb.filePath) {
+        m.syncService.exportToUsbFile();
+      }
+    }).catch(() => { });
 
     this.notify();
     return { session: closedSession, backupName, perkResult };
@@ -1109,6 +1196,24 @@ class DatabaseService {
       this.activeSession.salesCount += 1;
       if (sale.paymentMethod === 'especes') {
         this.activeSession.totalCash += sale.totalAmount;
+
+        // Mémoriser la composition exacte des pièces/billets pour faciliter la décaisse
+        if (!this.activeSession.draftCashCounts) {
+          this.activeSession.draftCashCounts = {};
+        }
+        const givenBreakdown = sale.cashBreakdown?.given || decomposeCashAmount(sale.cashReceived || sale.totalAmount);
+        for (const [denomId, count] of Object.entries(givenBreakdown)) {
+          if (count > 0) {
+            this.activeSession.draftCashCounts[denomId] = (this.activeSession.draftCashCounts[denomId] || 0) + count;
+          }
+        }
+        if (sale.cashBreakdown?.returned) {
+          for (const [denomId, count] of Object.entries(sale.cashBreakdown.returned)) {
+            if (count > 0) {
+              this.activeSession.draftCashCounts[denomId] = Math.max(0, (this.activeSession.draftCashCounts[denomId] || 0) - count);
+            }
+          }
+        }
       } else {
         this.activeSession.totalTpe += sale.totalAmount;
       }
@@ -1335,13 +1440,50 @@ class DatabaseService {
     this.perkSettings = { ...this.perkSettings, ...updates };
     localStorage.setItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
     const statusTxt = this.perkSettings.enabled ? 'Activée' : 'Désactivée';
-    const ruleTxt = this.perkSettings.rule === 'items_sold' 
-      ? `${this.perkSettings.threshold} articles vendus` 
-      : this.perkSettings.rule === 'sales_count' 
-        ? `${this.perkSettings.threshold} ventes` 
+    const ruleTxt = this.perkSettings.rule === 'items_sold'
+      ? `${this.perkSettings.threshold} articles vendus`
+      : this.perkSettings.rule === 'sales_count'
+        ? `${this.perkSettings.threshold} ventes`
         : 'Toujours offerte';
     this.logActivity('INFO', `Règles de collation bénévole mises à jour (${statusTxt}, règle: ${ruleTxt})`);
     this.notify();
+  }
+
+  // --- Gestion du Fond de Caisse de Référence & Décaisse ---
+  public getCashFloatSettings(): CashFloatSettings {
+    return {
+      ...this.cashFloatSettings,
+      baseCounts: { ...this.cashFloatSettings.baseCounts },
+      lastRemainingCounts: { ...(this.cashFloatSettings.lastRemainingCounts || {}) },
+      carriedOverDifferences: { ...(this.cashFloatSettings.carriedOverDifferences || {}) }
+    };
+  }
+
+  public updateCashFloatSettings(updates: Partial<CashFloatSettings>): void {
+    this.cashFloatSettings = {
+      ...this.cashFloatSettings,
+      ...updates,
+      baseCounts: updates.baseCounts ? { ...updates.baseCounts } : this.cashFloatSettings.baseCounts,
+      lastRemainingCounts: updates.lastRemainingCounts ? { ...updates.lastRemainingCounts } : this.cashFloatSettings.lastRemainingCounts,
+      carriedOverDifferences: updates.carriedOverDifferences ? { ...updates.carriedOverDifferences } : this.cashFloatSettings.carriedOverDifferences,
+      updatedAt: new Date().toISOString()
+    };
+    this.saveCashFloatSettings();
+    const baseTotal = this.calculateBaseCashFloatTotal();
+    this.logActivity('INFO', `Paramètres du fond de caisse de référence mis à jour (Base: ${baseTotal.toFixed(2)} €)`);
+    this.notify();
+  }
+
+  public calculateBaseCashFloatTotal(baseCounts?: Record<string, number>): number {
+    const counts = baseCounts || this.cashFloatSettings.baseCounts;
+    let total = 0;
+    for (const [denomId, qty] of Object.entries(counts)) {
+      const val = parseFloat(denomId);
+      if (!isNaN(val) && qty > 0) {
+        total += val * qty;
+      }
+    }
+    return Math.round(total * 100) / 100;
   }
 
   public getVolunteerPerks(): VolunteerPerk[] {
@@ -1397,12 +1539,12 @@ class DatabaseService {
     let required = settings.threshold;
 
     if (settings.rule === 'sales_count') {
-      current = targetSessionId 
-        ? this.getSessionSalesCount(targetSessionId) 
+      current = targetSessionId
+        ? this.getSessionSalesCount(targetSessionId)
         : salesToday;
     } else if (settings.rule === 'items_sold') {
-      current = targetSessionId 
-        ? this.getSessionItemsSoldCount(targetSessionId) 
+      current = targetSessionId
+        ? this.getSessionItemsSoldCount(targetSessionId)
         : this.getTodayItemsSoldForVolunteer(volunteerId);
     } else {
       // 'always'
@@ -1543,7 +1685,7 @@ class DatabaseService {
       const hour = 9 + Math.floor(i / 2);
       const minute = (i * 13) % 60;
       const saleDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute);
-      
+
       sampleSales.push({
         id: `seed-sale-today-${i}`,
         timestamp: saleDate.toISOString(),
@@ -1978,7 +2120,8 @@ class DatabaseService {
       restocks: this.restocks,
       logs: this.logs,
       perkSettings: this.perkSettings,
-      tpeSettings: this.tpeSettings
+      tpeSettings: this.tpeSettings,
+      cashFloatSettings: this.cashFloatSettings
     };
   }
 
@@ -2017,6 +2160,10 @@ class DatabaseService {
     if (data.tpeSettings) {
       this.tpeSettings = data.tpeSettings;
       this.saveTpeSettings();
+    }
+    if (data.cashFloatSettings) {
+      this.cashFloatSettings = { ...DEFAULT_CASH_FLOAT_SETTINGS, ...data.cashFloatSettings };
+      this.saveCashFloatSettings();
     }
     this.logActivity('BACKUP', 'Importation complète de la base de données effectuée');
     this.notify();
