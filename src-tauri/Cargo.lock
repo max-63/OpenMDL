@@ -2299,8 +2299,10 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openmdl"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
+ "crc32fast",
+ "flate2",
  "log",
  "serde",
  "serde_json",

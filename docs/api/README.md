@@ -85,3 +85,15 @@ OpenMDL.ui.notify("Bienvenue dans mon addon !", "success");
 // Raccourci équivalent
 api.ui.notify("Bienvenue dans mon addon !", "success");
 ```
+
+---
+
+## Packaging & Format Binaire `.mdlx`
+
+Pour distribuer et installer des addons simplement d'un lycée à un autre sans manipulation manuelle de dossiers, OpenMDL utilise son propre format de conteneur binaire : **`.mdlx` (OpenMDL Extension Package)**.
+
+- **Contenu du paquet** : l'archive `.mdlx` regroupe le manifeste `addon.json`, tous vos scripts sources (`src/*.ts`), styles (`*.css`) et documentations (`*.md`).
+- **Compression Zlib native** : compression gérée par le moteur Rust d'OpenMDL pour une taille minimale.
+- **Contrôle d'intégrité CRC32** : une somme de contrôle vérifie que le fichier n'a pas été altéré ou tronqué lors du transfert.
+- **Export en 1 clic** : cliquez sur l'icône de téléchargement sur la carte de votre addon dans OpenMDL pour générer instantanément le fichier `<id>.mdlx`.
+- **Importation universelle** : cliquez sur **« Importer un Addon (.mdlx) »** pour charger le module dans la bibliothèque du foyer (les anciens formats `.json` restent également acceptés).

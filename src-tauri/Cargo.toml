@@ -1,6 +1,6 @@
 [package]
 name = "openmdl"
-version = "1.0.6"
+version = "1.0.7"
 description = "OpenMDL Caisse et Foyer Lycee"
 authors = ["you"]
 license = ""
@@ -26,3 +26,5 @@ tauri-plugin-log = "2"
 tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
 tiny_http = "0.12"
+flate2 = "1.0"
+crc32fast = "1.4"

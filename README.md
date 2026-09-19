@@ -43,7 +43,9 @@ OpenMDL simplifie la gestion quotidienne des permanences au foyer : encaissement
 | 🚚 **Restock Express** | Saisie rapide des arrivages de marchandises avec calcul du prix d'achat unitaire et des marges prévisionnelles. |
 | 📊 **Statistiques & Comptabilité** | Tableaux de bord financiers (CA, marge brute, bénéfice net) avec déduction exacte des frais bancaires (ex: 1,75% SumUp) et graphiques mensuels/annuels. |
 | 📑 **Clôture de Caisse & Export** | Procédure de fermeture de caisse guidée avec comptage du tiroir-caisse et export comptable CSV/Excel pour l'intendance ou le trésorier. |
-| 🔒 **Sécurité & Rôles** | Mode Vendeur / Trésorier sécurisé par code PIN pour protéger les statistiques financières et les paramètres. |
+| 💾 **Sauvegardes Binaires (.mdlb)** | Format binaire propriétaire ultra-léger et compressé en Rust (Zlib) avec contrôle d'intégrité CRC32 anti-corruption, généré automatiquement à chaque clôture. |
+| 🧩 **Addons & Modding (.mdlx)** | Bibliothèque d'extensions en TypeScript développables dans VS Code / Lapce avec packaging binaire `.mdlx` et synchronisation en direct sans redémarrage. |
+| 🔒 **Sécurité & Rôles** | Mode Vendeur / Trésorier sécurisé par mot de passe et droits délégués CVL pour protéger les statistiques financières et les paramètres. |
 | 🎨 **Design & Confort** | Thème Sombre et Clair automatique, fenêtre sans bordure personnalisée (`-`, `□`, `✕`) et logo officiel transparent. |
 
 ---
@@ -118,7 +120,7 @@ Une documentation exhaustive décrivant chaque module, la comptabilité, le stoc
 ## 🛡️ Données & Confidentialité
 
 - **Stockage 100% local** : Les données de ventes et le catalogue sont enregistrés dans le navigateur local et sécurisés dans le répertoire utilisateur de l'OS (`~/.local/share/openmdl/` sous Linux, `%APPDATA%/openmdl/` sous Windows).
-- **Sauvegarde en 1 clic** : Fonction de sauvegarde et restauration JSON pour transférer la base de données sur une clé USB en fin d'année scolaire.
+- **Sauvegardes Binaires Haute Performance (.mdlb)** : Sauvegardes ultra-compactes compressées en Zlib avec intégrité garantie par checksum CRC32. Clôture automatique, export sur clé USB et restauration instantanée avec rétrocompatibilité JSON.
 
 ---
 

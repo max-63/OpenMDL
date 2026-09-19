@@ -1,4 +1,5 @@
 import { db } from './db';
+import { packBackupBinary, unpackBackupBinary } from './binaryCodec';
 
 export type SyncMode = 'standalone' | 'lan' | 'usb';
 export type LanRole = 'server' | 'client';
@@ -316,15 +317,26 @@ export class SyncService {
   // --- Clé USB / Fichier partagé ---
 
   public async exportToUsbFile(customPath?: string): Promise<{ success: boolean; message: string }> {
-    const path = customPath || this.config.usb.filePath;
-    if (!path || !path.trim()) {
+    let path = (customPath || this.config.usb.filePath || '').trim();
+    if (!path) {
       return { success: false, message: 'Aucun chemin de fichier renseigne pour la cle USB.' };
     }
 
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const dbJson = JSON.stringify(db.exportData(), null, 2);
-      await invoke('write_file_to_path', { filePath: path.trim(), content: dbJson });
+      const isJson = path.toLowerCase().endsWith('.json');
+      const data = db.exportData();
+
+      if (isJson) {
+        const dbJson = JSON.stringify(data, null, 2);
+        await invoke('write_file_to_path', { filePath: path, content: dbJson });
+      } else {
+        if (!path.toLowerCase().endsWith('.mdlb')) {
+          path = `${path}.mdlb`;
+        }
+        const binaryBytes = await packBackupBinary(data);
+        await invoke('write_binary_file', { filePath: path, bytes: Array.from(binaryBytes) });
+      }
 
       this.lastSyncTime = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       this.lastSyncMessage = `Sauvegarde exportee sur la cle USB (${this.lastSyncTime})`;
@@ -341,18 +353,18 @@ export class SyncService {
   }
 
   public async importFromUsbFile(customPath?: string): Promise<{ success: boolean; message: string }> {
-    const path = customPath || this.config.usb.filePath;
-    if (!path || !path.trim()) {
+    const path = (customPath || this.config.usb.filePath || '').trim();
+    if (!path) {
       return { success: false, message: 'Aucun chemin de fichier renseigne pour la cle USB.' };
     }
 
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const content = await invoke<string>('read_file_from_path', { filePath: path.trim() });
-      const data = JSON.parse(content);
+      const bytes = await invoke<number[]>('read_binary_file', { filePath: path });
+      const data = await unpackBackupBinary(new Uint8Array(bytes));
 
       if (!data || typeof data !== 'object' || !Array.isArray(data.products)) {
-        throw new Error('Fichier USB invalide.');
+        throw new Error('Fichier de sauvegarde USB non valide ou corrompu.');
       }
 
       db.importData(data);

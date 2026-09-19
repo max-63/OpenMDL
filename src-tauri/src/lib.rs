@@ -4,12 +4,133 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 mod lan_server;
+mod binary_format;
 
 fn get_app_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     app_handle
         .path()
         .app_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct BackupEntryDto {
+    pub file_name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub is_binary: bool,
+    pub modified_secs: u64,
+}
+
+#[tauri::command]
+fn pack_addon_binary(addon_json: String) -> Result<Vec<u8>, String> {
+    binary_format::pack_mdlx(&addon_json)
+}
+
+#[tauri::command]
+fn unpack_addon_binary(bytes: Vec<u8>) -> Result<String, String> {
+    binary_format::unpack_mdlx(&bytes)
+}
+
+#[tauri::command]
+fn pack_backup_binary(backup_json: String) -> Result<Vec<u8>, String> {
+    binary_format::pack_mdlb(&backup_json)
+}
+
+#[tauri::command]
+fn unpack_backup_binary(bytes: Vec<u8>) -> Result<String, String> {
+    binary_format::unpack_mdlb(&bytes)
+}
+
+#[tauri::command]
+fn save_backup_binary(app_handle: tauri::AppHandle, tag: String, data: String) -> Result<String, String> {
+    let app_dir = get_app_dir(&app_handle);
+    let backups_dir = app_dir.join("backups");
+
+    if let Err(e) = fs::create_dir_all(&backups_dir) {
+        return Err(format!("Impossible de créer le dossier backups: {}", e));
+    }
+
+    let mut safe_tag: String = tag
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    if safe_tag.is_empty() {
+        safe_tag = "export".to_string();
+    }
+
+    let timestamp = chrono_free_timestamp();
+    let filename = format!("backup_{}_{}.mdlb", safe_tag, timestamp);
+    let file_path = backups_dir.join(&filename);
+
+    let binary_bytes = binary_format::pack_mdlb(&data)?;
+    if let Err(e) = fs::write(&file_path, binary_bytes) {
+        return Err(format!("Erreur lors de l'écriture du backup binaire: {}", e));
+    }
+
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn list_backups(app_handle: tauri::AppHandle) -> Result<Vec<BackupEntryDto>, String> {
+    let app_dir = get_app_dir(&app_handle);
+    let backups_dir = app_dir.join("backups");
+    if !backups_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut list = Vec::new();
+    if let Ok(entries) = fs::read_dir(backups_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".mdlb") || name.ends_with(".json") {
+                    let metadata = entry.metadata().ok();
+                    let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                    let modified = metadata
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let is_binary = name.ends_with(".mdlb");
+                    list.push(BackupEntryDto {
+                        file_name: name,
+                        path: path.to_string_lossy().to_string(),
+                        size_bytes: size,
+                        is_binary,
+                        modified_secs: modified,
+                    });
+                }
+            }
+        }
+    }
+
+    list.sort_by(|a, b| b.modified_secs.cmp(&a.modified_secs));
+    Ok(list)
+}
+
+#[tauri::command]
+fn read_backup_file(file_path: String) -> Result<String, String> {
+    let bytes = fs::read(&file_path).map_err(|e| format!("Impossible de lire {}: {}", file_path, e))?;
+    if bytes.starts_with(b"MDLB") {
+        binary_format::unpack_mdlb(&bytes)
+    } else {
+        String::from_utf8(bytes).map_err(|e| format!("Erreur encodage UTF-8: {}", e))
+    }
+}
+
+#[tauri::command]
+fn write_binary_file(file_path: String, bytes: Vec<u8>) -> Result<(), String> {
+    if let Some(parent) = std::path::Path::new(&file_path).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&file_path, bytes).map_err(|e| format!("Impossible d'ecrire le fichier binaire sur {}: {}", file_path, e))
+}
+
+#[tauri::command]
+fn read_binary_file(file_path: String) -> Result<Vec<u8>, String> {
+    fs::read(&file_path).map_err(|e| format!("Impossible de lire le fichier binaire sur {}: {}", file_path, e))
 }
 
 #[tauri::command]
@@ -300,6 +421,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             save_backup,
+            save_backup_binary,
+            list_backups,
+            read_backup_file,
+            pack_addon_binary,
+            unpack_addon_binary,
+            pack_backup_binary,
+            unpack_backup_binary,
+            write_binary_file,
+            read_binary_file,
             append_log,
             exit_app,
             open_in_external_editor,

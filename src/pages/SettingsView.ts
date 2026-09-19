@@ -5,6 +5,7 @@ import { updater, UpdateState } from '../services/updater';
 import { PerkEligibilityRule, EURO_DENOMINATIONS, CashFloatSettings } from '../types';
 import { syncService, SyncConfig, LanServerStatus } from '../services/syncService';
 import { AppDialog } from '../components/AppDialog';
+import { packBackupBinary, unpackBackupBinary, listDiskBackups, readBackupFromDisk, triggerFileDownload } from '../services/binaryCodec';
 
 export class SettingsView {
   private feedbackMessage: { text: string; type: 'success' | 'error' } | null = null;
@@ -1136,37 +1137,76 @@ export class SettingsView {
             </div>
           </div>
 
-          <!-- 2.2.3 Carte Gestion des Données & Démo -->
-          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3">
-            <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-              ${Icons.database('w-4 h-4 text-orange-500')}
-              <span>Données & Mode Démonstration</span>
+          <!-- 2.2.3 Carte Gestion des Données & Sauvegardes Binaires -->
+          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                ${Icons.database('w-4 h-4 text-orange-500')}
+                <span>Données & Sauvegardes Binaires</span>
+              </div>
+              <span class="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px] font-black uppercase border border-orange-500/20">
+                Format .mdlb
+              </span>
             </div>
 
-            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              Basculez entre caisse vierge (1 compte admin, 0 vente) et données démo pour tests.
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+              Exportez ou restaurez la caisse au format binaire optimisé OpenMDL (compression zlib, vérification CRC32 et protection contre la corruption).
             </p>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
-              <!-- Bouton Vider les données de test / Remise à zéro -->
+            <!-- Actions principales de sauvegarde binaire -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button 
                 type="button" 
-                id="btn-clean-data" 
-                class="py-2 px-3 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-950/60 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center"
+                id="btn-export-backup-mdlb" 
+                class="py-2.5 px-3 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-md shadow-orange-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center"
+                title="Exporter une archive binaire .mdlb compressée"
               >
-                ${Icons.trash('w-3.5 h-3.5')}
-                <span>Remise à zéro</span>
+                ${Icons.download('w-3.5 h-3.5')}
+                <span>Exporter (.mdlb)</span>
               </button>
 
-              <!-- Bouton Charger données de démo -->
               <button 
                 type="button" 
-                id="btn-seed-demo" 
-                class="py-2 px-3 rounded-2xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-950/60 border border-sky-200 dark:border-sky-900/50 text-sky-700 dark:text-sky-300 font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center"
+                id="btn-restore-backup-file" 
+                class="py-2.5 px-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center border border-slate-200 dark:border-slate-700"
+                title="Restaurer un fichier .mdlb ou .json"
               >
-                ${Icons.trendingUp('w-3.5 h-3.5')}
-                <span>Charger démo</span>
+                ${Icons.upload('w-3.5 h-3.5')}
+                <span>Restaurer archive</span>
               </button>
+              <input type="file" id="input-restore-backup-file" accept=".mdlb,.json" class="hidden" />
+            </div>
+
+            <!-- Actions secondaires : Historique & Démo / RAZ -->
+            <div class="pt-1 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
+              <button 
+                type="button" 
+                id="btn-show-backups-history" 
+                class="w-full py-2 px-3 rounded-2xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                ${Icons.clock('w-3.5 h-3.5 text-slate-400')}
+                <span>Historique des sauvegardes automatiques</span>
+              </button>
+
+              <div class="grid grid-cols-2 gap-2">
+                <button 
+                  type="button" 
+                  id="btn-clean-data" 
+                  class="py-1.5 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 border border-rose-200/80 dark:border-rose-900/40 text-rose-700 dark:text-rose-300 font-bold text-[11px] transition-all flex items-center justify-center gap-1 cursor-pointer text-center"
+                >
+                  ${Icons.trash('w-3 h-3')}
+                  <span>Remise à zéro</span>
+                </button>
+
+                <button 
+                  type="button" 
+                  id="btn-seed-demo" 
+                  class="py-1.5 px-2.5 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/30 dark:hover:bg-sky-950/50 border border-sky-200/80 dark:border-sky-900/40 text-sky-700 dark:text-sky-300 font-bold text-[11px] transition-all flex items-center justify-center gap-1 cursor-pointer text-center"
+                >
+                  ${Icons.trendingUp('w-3 h-3')}
+                  <span>Charger démo</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1516,6 +1556,205 @@ export class SettingsView {
         };
         this.editingNameUserId = null;
         this.refresh(container);
+      });
+    });
+
+    // Exporter une archive binaire (.mdlb)
+    container.querySelector('#btn-export-backup-mdlb')?.addEventListener('click', async () => {
+      try {
+        const data = db.exportData();
+        const binaryBytes = await packBackupBinary(data);
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const fileName = `openmdl_backup_${dateStr}.mdlb`;
+        triggerFileDownload(binaryBytes, fileName, 'application/octet-stream');
+        this.feedbackMessage = {
+          text: `Archive binaire créée avec succès : ${fileName} (${binaryBytes.length} octets, compressée et vérifiée CRC32)`,
+          type: 'success'
+        };
+        this.refresh(container);
+      } catch (err: any) {
+        console.error(err);
+        this.feedbackMessage = {
+          text: 'Erreur lors de l\'export binaire : ' + (err.message || String(err)),
+          type: 'error'
+        };
+        this.refresh(container);
+      }
+    });
+
+    // Restaurer une archive (.mdlb ou .json)
+    const restoreFileInput = container.querySelector('#input-restore-backup-file') as HTMLInputElement;
+    container.querySelector('#btn-restore-backup-file')?.addEventListener('click', () => {
+      restoreFileInput?.click();
+    });
+
+    restoreFileInput?.addEventListener('change', async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      try {
+        const buffer = await file.arrayBuffer();
+        const data = await unpackBackupBinary(buffer);
+
+        if (!data || typeof data !== 'object' || !Array.isArray(data.products)) {
+          throw new Error('Le fichier de sauvegarde est invalide ou corrompu.');
+        }
+
+        const isMdlb = file.name.endsWith('.mdlb');
+        AppDialog.confirm({
+          title: 'Restaurer la sauvegarde',
+          message: `Voulez-vous restaurer l'archive "${file.name}" (${isMdlb ? 'Format binaire .mdlb' : 'Format JSON'}) ?\n\nContenu détecté :\n- ${data.products?.length || 0} produit(s)\n- ${data.sales?.length || 0} vente(s)\n- ${data.sessions?.length || 0} séance(s)\n- ${data.volunteers?.length || 0} utilisateur(s)\n\nAttention : cette action va écraser les données actuelles.`,
+          type: 'warning',
+          confirmText: 'Restaurer & Écraser',
+          cancelText: 'Annuler',
+          onConfirm: () => {
+            db.importData(data);
+            this.feedbackMessage = {
+              text: `Sauvegarde "${file.name}" restaurée avec succès !`,
+              type: 'success'
+            };
+            this.refresh(container);
+          }
+        });
+      } catch (err: any) {
+        console.error(err);
+        AppDialog.alert({
+          title: 'Erreur de restauration',
+          message: 'Impossible de restaurer le fichier : ' + (err.message || String(err)),
+          type: 'error'
+        });
+      } finally {
+        restoreFileInput.value = '';
+      }
+    });
+
+    // Afficher l'historique des sauvegardes automatiques
+    container.querySelector('#btn-show-backups-history')?.addEventListener('click', async () => {
+      const diskBackups = await listDiskBackups();
+      const localBackups = db.getBackupsList();
+
+      const modalContent = document.createElement('div');
+      modalContent.className = 'space-y-4';
+
+      if (diskBackups.length === 0 && localBackups.length === 0) {
+        modalContent.innerHTML = `
+          <div class="p-8 text-center text-slate-400">
+            <p class="font-bold">Aucune sauvegarde enregistrée pour le moment.</p>
+            <p class="text-xs mt-1">Des sauvegardes sont générées automatiquement lors de la clôture des séances.</p>
+          </div>
+        `;
+      } else {
+        const combined = [
+          ...diskBackups.map(b => ({
+            name: b.fileName,
+            path: b.path,
+            size: b.sizeBytes,
+            isBinary: b.isBinary,
+            date: new Date(b.modifiedSecs * 1000).toLocaleString('fr-FR'),
+            isDisk: true
+          })),
+          ...localBackups
+            .filter(lb => !diskBackups.some(db => db.fileName === lb.fileName))
+            .map(lb => ({
+              name: lb.fileName,
+              path: '',
+              size: (lb as any).size || 0,
+              isBinary: lb.fileName.endsWith('.mdlb'),
+              date: new Date(lb.date).toLocaleString('fr-FR'),
+              isDisk: false
+            }))
+        ];
+
+        modalContent.innerHTML = `
+          <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+            Liste des sauvegardes générées par OpenMDL. Vous pouvez restaurer ou inspecter n'importe quel point de sauvegarde.
+          </p>
+          <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+            ${combined.map((b, idx) => `
+              <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
+                <div class="space-y-1 truncate">
+                  <div class="flex items-center gap-2">
+                    <span class="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 truncate">${escapeHtml(b.name)}</span>
+                    <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${b.isBinary ? 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/20' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}">
+                      ${b.isBinary ? '.MDLB Binaire' : 'JSON'}
+                    </span>
+                  </div>
+                  <div class="text-[10px] text-slate-400 flex items-center gap-2">
+                    <span>${b.date}</span>
+                    <span>•</span>
+                    <span>${(b.size / 1024).toFixed(1)} Ko</span>
+                    ${b.isDisk ? '<span class="text-emerald-500 font-bold">• Sur disque</span>' : ''}
+                  </div>
+                </div>
+
+                <button 
+                  type="button" 
+                  data-restore-index="${idx}" 
+                  class="btn-restore-history-item px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs transition-colors flex items-center gap-1 cursor-pointer flex-shrink-0"
+                >
+                  ${Icons.refresh('w-3 h-3')}
+                  <span>Restaurer</span>
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        `;
+
+        const closeModal = AppDialog.custom({
+          title: 'Historique des Sauvegardes OpenMDL',
+          content: modalContent,
+          size: 'lg'
+        });
+
+        modalContent.querySelectorAll('.btn-restore-history-item').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const index = parseInt((e.currentTarget as HTMLElement).getAttribute('data-restore-index') || '-1', 10);
+            const target = combined[index];
+            if (!target) return;
+
+            AppDialog.confirm({
+              title: 'Restaurer ce point de sauvegarde',
+              message: `Voulez-vous restaurer les données depuis "${target.name}" (${target.date}) ?\nLes données actuelles seront remplacées.`,
+              type: 'warning',
+              confirmText: 'Confirmer la restauration',
+              cancelText: 'Annuler',
+              onConfirm: async () => {
+                try {
+                  let data: any = null;
+                  if (target.isDisk && target.path) {
+                    data = await readBackupFromDisk(target.path);
+                  } else {
+                    const raw = localStorage.getItem('backup_data_' + target.name);
+                    if (!raw) throw new Error('Données introuvables en cache local.');
+                    data = await unpackBackupBinary(raw);
+                  }
+
+                  db.importData(data);
+                  closeModal();
+                  this.feedbackMessage = {
+                    text: `Sauvegarde "${target.name}" restaurée avec succès !`,
+                    type: 'success'
+                  };
+                  this.refresh(container);
+                } catch (err: any) {
+                  console.error(err);
+                  AppDialog.alert({
+                    title: 'Erreur',
+                    message: 'Échec de lecture de la sauvegarde : ' + (err.message || String(err)),
+                    type: 'error'
+                  });
+                }
+              }
+            });
+          });
+        });
+        return;
+      }
+
+      AppDialog.custom({
+        title: 'Historique des Sauvegardes OpenMDL',
+        content: modalContent,
+        size: 'md'
       });
     });
 

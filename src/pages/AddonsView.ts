@@ -2,6 +2,7 @@ import { addonManager } from '../services/addonManager';
 import { AddonPackage } from '../types/addon';
 import { Icons } from '../components/Icons';
 import { createNewAddonTemplate, ADDON_GUIDE_MARKDOWN } from '../services/addonTemplates';
+import { packAddonBinary, unpackAddonBinary, triggerFileDownload } from '../services/binaryCodec';
 
 export class AddonsView {
   private container: HTMLElement | null = null;
@@ -52,9 +53,9 @@ export class AddonsView {
           <!-- Importer un Addon -->
           <button id="btn-import-addon" class="px-3.5 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors flex items-center gap-2 cursor-pointer border border-slate-200 dark:border-slate-700">
             ${Icons.download('w-4 h-4')}
-            <span>Importer un Addon</span>
+            <span>Importer un Addon (.mdlx)</span>
           </button>
-          <input type="file" id="import-file-input" accept=".json" class="hidden" />
+          <input type="file" id="import-file-input" accept=".mdlx,.json" class="hidden" />
 
           <!-- Créer un Addon -->
           <button id="btn-create-addon" class="px-4 py-2 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-md shadow-orange-600/20 transition-all flex items-center gap-2 cursor-pointer">
@@ -291,23 +292,22 @@ export class AddonsView {
       });
     });
 
-    // Bouton Exporter
+    // Bouton Exporter (.mdlx binaire optimisé)
     this.container.querySelectorAll('.btn-export-addon').forEach(el => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', async () => {
         const id = el.getAttribute('data-id');
         if (!id) return;
         const pkg = addonManager.getPackage(id);
         if (!pkg) return;
 
-        const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(pkg, null, 2));
-        const downloadAnchor = document.createElement('a');
-        downloadAnchor.setAttribute('href', dataStr);
-        downloadAnchor.setAttribute('download', `${pkg.manifest.id}-openmdl-addon.json`);
-        document.body.appendChild(downloadAnchor);
-        downloadAnchor.click();
-        downloadAnchor.remove();
-
-        addonManager.api.ui.notify(`Addon "${pkg.manifest.name}" exporté !`, 'success');
+        try {
+          const binaryBytes = await packAddonBinary(pkg);
+          triggerFileDownload(binaryBytes, `${pkg.manifest.id}.mdlx`, 'application/octet-stream');
+          addonManager.api.ui.notify(`Addon "${pkg.manifest.name}" exporté au format binaire optimisé (.mdlx, ${binaryBytes.length} octets) !`, 'success');
+        } catch (err) {
+          console.error(err);
+          addonManager.api.ui.notify('Erreur lors de l\'export binaire de l\'addon : ' + String(err), 'error');
+        }
       });
     });
 
@@ -332,34 +332,29 @@ export class AddonsView {
       });
     });
 
-    // Importer un Addon (JSON)
+    // Importer un Addon (.mdlx binaire ou legacy .json)
     const fileInput = this.container.querySelector('#import-file-input') as HTMLInputElement;
     this.container.querySelector('#btn-import-addon')?.addEventListener('click', () => {
       fileInput?.click();
     });
 
-    fileInput?.addEventListener('change', (e) => {
+    fileInput?.addEventListener('change', async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const content = event.target?.result as string;
-          const pkg = JSON.parse(content) as AddonPackage;
-          if (!pkg.manifest || !pkg.manifest.id || !pkg.files) {
-            throw new Error('Format de package addon non valide.');
-          }
-
-          addonManager.savePackage(pkg);
-          addonManager.api.ui.notify(`Addon "${pkg.manifest.name}" importé avec succès !`, 'success');
-          this.renderContent();
-        } catch (err) {
-          console.error(err);
-          addonManager.api.ui.notify('Erreur lors de l\'importation du fichier addon.', 'error');
-        }
-      };
-      reader.readAsText(file);
+      try {
+        const buffer = await file.arrayBuffer();
+        const pkg = await unpackAddonBinary(buffer);
+        addonManager.savePackage(pkg);
+        const isMdlx = file.name.endsWith('.mdlx');
+        addonManager.api.ui.notify(`Addon "${pkg.manifest.name}" (${isMdlx ? 'Package binaire .mdlx' : 'JSON'}) importé avec succès !`, 'success');
+        this.renderContent();
+      } catch (err) {
+        console.error(err);
+        addonManager.api.ui.notify('Erreur lors de l\'importation de l\'addon : ' + String(err), 'error');
+      } finally {
+        fileInput.value = '';
+      }
     });
   }
 

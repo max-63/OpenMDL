@@ -242,17 +242,15 @@ OpenMDL.utils.downloadFile('rapport.json', JSON.stringify(donnees));
 
 ---
 
-## 4. Comment Exporter et Publier sur GitHub
+## 4. Comment Exporter et Partager un Addon (.mdlx)
 
-1. Une fois votre addon testé et fonctionnel dans le Studio, cliquez sur le bouton **"Exporter pour GitHub"**.
-2. Un dossier structuré ou une archive \`.zip\` est générée contenant :
-   - \`addon.json\` (métadonnées)
-   - \`index.ts\` (votre code)
-   - \`style.css\` (vos styles)
-   - \`README.md\` (notice publique)
-   - \`LICENSE\` (licence open source)
-3. Créez un nouveau dépôt public sur votre compte GitHub (ex: \`https://github.com/votre-compte/openmdl-mon-addon\`).
-4. Déposez vos fichiers et partagez le lien avec d'autres foyers et lycées !
+1. Une fois votre addon testé et fonctionnel, cliquez sur l'icône **Exporter** sur la carte de votre addon.
+2. OpenMDL génère instantanément un conteneur binaire **\`.mdlx\`** (*OpenMDL Extension Package*) :
+   - Fichier ultra-léger et compressé en Zlib natif (Rust).
+   - Intégrité vérifiée par somme de contrôle CRC32.
+   - Regroupe l'ensemble du projet : \`addon.json\`, \`index.ts\`, styles, templates et documentation.
+3. Partagez directement ce fichier \`.mdlx\` avec les autres foyers et membres du CVL (ou dans les releases GitHub).
+4. Pour l'installer sur une autre machine, cliquez sur **« Importer un Addon (.mdlx) »** dans la bibliothèque d'addons !
 `;
 
 export function createNewAddonTemplate(id: string, name: string, author: string): AddonPackage {

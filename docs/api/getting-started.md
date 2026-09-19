@@ -99,6 +99,12 @@ OpenMDL.navigation.registerTab({
 3. Sur la carte de votre addon, cliquez sur l'icône **Synchroniser** (flèches circulaires).
 4. Vos modifications sont immédiatement rechargées en direct dans la caisse, sans avoir besoin de redémarrer le logiciel.
 
+### Étape 4 : Exportation et distribution (.mdlx)
+1. Lorsque votre addon est prêt, cliquez sur l'icône **Télécharger / Exporter** sur la carte de l'addon.
+2. OpenMDL compile et compresse automatiquement le module au format binaire **`.mdlx`** (OpenMDL Extension Package).
+3. Vous pouvez partager ce fichier `.mdlx` avec d'autres foyers ou le téléverser dans les Releases de votre dépôt GitHub.
+4. Sur une autre caisse OpenMDL, il suffit de cliquer sur **« Importer un Addon (.mdlx) »** pour l'installer instantanément.
+
 ---
 
 ## Extensions VS Code Recommandées

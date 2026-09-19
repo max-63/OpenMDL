@@ -176,4 +176,59 @@ export class AppDialog {
       document.body.appendChild(overlay);
     });
   }
+
+  /**
+   * Boîte modale personnalisée avec contenu HTML arbitraire
+   */
+  public static custom(options: {
+    title: string;
+    content: HTMLElement | string;
+    size?: 'sm' | 'md' | 'lg' | 'xl';
+    onClose?: () => void;
+  }): () => void {
+    const sizeMap = {
+      sm: 'max-w-md',
+      md: 'max-w-lg',
+      lg: 'max-w-2xl',
+      xl: 'max-w-4xl'
+    };
+    const maxW = sizeMap[options.size || 'md'];
+
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-enter';
+
+    overlay.innerHTML = `
+      <div class="w-full ${maxW} max-h-[90vh] rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-scale-up">
+        <div class="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <h3 class="text-base font-black text-slate-900 dark:text-white tracking-tight">${escapeHtml(options.title)}</h3>
+          <button id="modal-close-x" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition-colors cursor-pointer">
+            ${Icons.x('w-4 h-4')}
+          </button>
+        </div>
+        <div id="modal-body-container" class="p-5 overflow-y-auto flex-1 text-xs"></div>
+      </div>
+    `;
+
+    const bodyEl = overlay.querySelector('#modal-body-container');
+    if (bodyEl) {
+      if (typeof options.content === 'string') {
+        bodyEl.innerHTML = options.content;
+      } else {
+        bodyEl.appendChild(options.content);
+      }
+    }
+
+    const close = () => {
+      overlay.remove();
+      if (options.onClose) options.onClose();
+    };
+
+    overlay.querySelector('#modal-close-x')?.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+
+    document.body.appendChild(overlay);
+    return close;
+  }
 }

@@ -1001,7 +1001,7 @@ class DatabaseService {
 
     // Création du backup horodaté de clôture
     const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const backupName = `openmdl_cloture_${dateStr}.json`;
+    const backupName = `openmdl_cloture_${dateStr}.mdlb`;
     this.createAutomaticBackup(`cloture_${dateStr}`);
 
     // Réinitialiser la session active
@@ -1024,21 +1024,19 @@ class DatabaseService {
   }
 
   public createAutomaticBackup(tag: string): string {
-    const backupPayload = {
-      tag,
-      exportDate: new Date().toISOString(),
-      products: this.products,
-      sales: this.sales,
-      sessions: this.sessions,
-      restocks: this.restocks,
-      logs: this.logs
-    };
+    const backupPayload = this.exportData();
+    const fileName = `backup_${tag}_${new Date().toISOString().slice(0, 10)}.mdlb`;
 
-    const fileName = `backup_${tag}_${new Date().toISOString().slice(0, 10)}.json`;
-    const jsonStr = JSON.stringify(backupPayload, null, 2);
+    // Sauvegarde binaire sur disque via Tauri
+    import('./binaryCodec').then(codec => {
+      codec.saveBackupBinaryOnDisk(tag, backupPayload).catch(err => {
+        console.warn('Sauvegarde disque échouée :', err);
+      });
+    }).catch(() => {});
 
     // Stockage dans l'historique des backups locaux
     try {
+      const jsonStr = JSON.stringify(backupPayload);
       const backupsListKey = 'openmdl_backups_index';
       const existing = JSON.parse(localStorage.getItem(backupsListKey) || '[]');
       existing.unshift({
@@ -2111,7 +2109,7 @@ class DatabaseService {
 
   public exportData(): Record<string, any> {
     return {
-      version: '1.0.5',
+      version: '1.0.7',
       exportDate: new Date().toISOString(),
       products: this.products,
       sales: this.sales,

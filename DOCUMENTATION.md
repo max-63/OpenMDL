@@ -150,29 +150,58 @@ L'onglet **Statistiques** offre une visibilité totale sur la santé financière
 
 - **Gestion des comptes & mots de passe bénévoles**.
 - **Bascule Production / Démonstration** :
-  - **« Réinitialiser la caisse à zéro »** : Épure instantanément toutes les ventes et transactions de test pour démarrer avec une caisse neuve et propre au foyer du lycée.
-  - **« Charger les données de démo »** : Génère en un clic un jeu complet de données réalistes sur plusieurs mois pour faire des démonstrations et des captures d'écran.
+  - **« Remise à zéro »** : Épure instantanément toutes les ventes et transactions de test pour démarrer avec une caisse neuve et propre au foyer du lycée.
+  - **« Charger démo »** : Génère en un clic un jeu complet de données réalistes sur plusieurs mois pour faire des démonstrations et des captures d'écran.
+- **Sauvegarde binaire optimisée (.mdlb)** :
+  - **« Exporter (.mdlb) »** : Génère une archive binaire compressée et protégée par somme de contrôle CRC32 de toute la base.
+  - **« Restaurer archive »** : Permet de restaurer directement un fichier binaire `.mdlb` ou un fichier legacy `.json`.
+  - **« Historique des sauvegardes »** : Ouvre un panneau d'audit listant toutes les sauvegardes sur disque et locales avec taille en Ko, date exacte et bouton de restauration immédiate.
 - Configuration du pourcentage de frais TPE (par défaut : `1.75%`).
 - Bascule du thème visuel (Clair / Sombre).
-- Sauvegarde et restauration manuelle de la base de données.
+- Configuration du fond de caisse cible (pièces et billets prévus) et gestion des collations offertes aux bénévoles.
 
 ---
 
-## 4. Gestion des Données, Sauvegardes & Emplacements
+### 3.9 Bibliothèque d'Addons & Modding (.mdlx)
 
-Toutes les données restent sous votre contrôle exclusif :
+OpenMDL intègre un système d'extension complet pour permettre aux délégués CVL et élèves développeurs d'ajouter de nouvelles fonctionnalités :
+- **Développement dans votre éditeur favori** : Bouton direct pour ouvrir l'addon dans Visual Studio Code, VSCodium, Lapce ou Zed avec typage complet (`openmdl.d.ts`) et autocomplétion.
+- **Synchronisation à chaud** : Les modifications de code sont réinjectées en direct dans la caisse sans redémarrer le logiciel.
+- **Format de conteneur binaire `.mdlx` (OpenMDL Extension Package)** :
+  - Les modules sont exportés sous la forme d'un fichier binaire `.mdlx` compact.
+  - Signature `MDLX` (4 octets), versionnage d'en-tête, compression Zlib / Deflate et contrôle d'intégrité CRC32.
+  - Importation en un clic dans n'importe quel foyer équipé d'OpenMDL (avec rétrocompatibilité transparente pour les fichiers `.json`).
+
+---
+
+## 4. Gestion des Données, Formats Binaires & Sauvegardes
+
+Toutes les données restent sous votre contrôle exclusif, sans aucune télémétrie ni dépendance cloud :
+
+### Formats de fichiers OpenMDL :
+* **`.mdlb` (OpenMDL Binary Backup)** :
+  - Format binaire officiel pour les sauvegardes de la base de données.
+  - En-tête sécurisé avec magic bytes `MDLB` (`0x4D 0x44 0x4C 0x42`), horodatage UNIX `u64`, tailles décompressée/compressée et checksum CRC32.
+  - Réduit le poids de stockage jusqu'à 85% par rapport au JSON brut grâce à la compression Zlib native en Rust.
+  - Empêche toute corruption accidentelle de données lors des transferts.
+* **`.mdlx` (OpenMDL Extension Package)** :
+  - Format binaire officiel pour la distribution et l'importation de modules/addons.
+  - Signature `MDLX` (`0x4D 0x44 0x4C 0x58`) et compression Zlib des manifests et codes sources TypeScript/CSS.
+* **Rétrocompatibilité JSON** : Le moteur détecte automatiquement la signature binaire et peut toujours importer des archives textuelles `.json` legacy.
 
 ### Emplacements système :
 * **Sous Linux** : `~/.local/share/openmdl/`
-  - `backups/` : archives JSON générées automatiquement.
+  - `backups/` : archives binaires `.mdlb` générées automatiquement lors de la clôture des séances.
+  - `addons_dev/` : dossiers de développement des addons pour VS Code.
   - `logs/` : journaux d'exécution (`openmdl_day_X.log`).
 * **Sous Windows** : `%APPDATA%\openmdl\`
+* **Sous macOS** : `~/Library/Application Support/openmdl/`
 
-### Sauvegarder sur clé USB :
+### Sauvegarder sur clé USB ou disque externe :
 1. Rendez-vous dans l'onglet **Paramètres** de l'application.
-2. Cliquez sur **« Exporter une sauvegarde JSON »**.
-3. Enregistrez le fichier sur votre clé USB.
-4. Pour restaurer les données sur un nouvel ordinateur, cliquez simplement sur **« Restaurer une sauvegarde »** et sélectionnez ce fichier.
+2. Dans la section **Données & Sauvegardes Binaires**, cliquez sur **« Exporter (.mdlb) »**.
+3. Enregistrez le fichier binaire sur votre clé USB.
+4. Pour restaurer la caisse sur un autre poste, cliquez sur **« Restaurer archive »** et sélectionnez votre fichier `.mdlb` (ou `.json`). Le logiciel inspecte l'archive et affiche un récapitulatif détaillé avant confirmation.
 
 ---
 
