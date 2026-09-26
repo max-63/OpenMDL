@@ -1,5 +1,6 @@
 import { Session, EURO_DENOMINATIONS, SessionCashCountItem, SessionCashWithdrawal } from '../types';
 import { db } from '../services/db';
+import { syncService } from '../services/syncService';
 import { Icons } from './Icons';
 import { escapeHtml } from '../utils/security';
 import { AppDialog } from './AppDialog';
@@ -28,7 +29,12 @@ export class CloseSessionModalComponent {
     }
 
     this.selectedPerkId = this.session.draftPerkProductId || '';
-    this.extraCounts = { ...(this.session.draftCashCounts || {}) };
+    const cashFloatSettings = db.getCashFloatSettings();
+    if (cashFloatSettings.autoCalculationEnabled === false) {
+      this.extraCounts = {};
+    } else {
+      this.extraCounts = { ...(this.session.draftCashCounts || {}) };
+    }
 
     this.container = document.createElement('div');
     this.container.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-enter';
@@ -258,7 +264,23 @@ export class CloseSessionModalComponent {
                   </div>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
-                  <span class="text-xs font-bold text-slate-400 uppercase">Fond programmé :</span>
+                  <button 
+                    type="button" 
+                    id="btn-prefill-auto-cash" 
+                    class="px-2.5 py-1 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 text-xs font-bold transition-colors cursor-pointer"
+                    title="Pré-remplir selon le calcul automatique des ventes"
+                  >
+                    Calcul auto
+                  </button>
+                  <button 
+                    type="button" 
+                    id="btn-reset-manual-cash" 
+                    class="px-2.5 py-1 rounded-xl bg-slate-200/80 dark:bg-slate-700/80 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                    title="Remettre tous les surplus à 0 pour compter à la main"
+                  >
+                    À la main (0)
+                  </button>
+                  <span class="text-xs font-bold text-slate-400 uppercase ml-1">Fond programmé :</span>
                   <span class="px-3.5 py-1.5 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 font-mono text-sm sm:text-base font-black">
                     ${baseFloatTotal.toFixed(2)} €
                   </span>
@@ -562,6 +584,28 @@ export class CloseSessionModalComponent {
         });
       });
 
+      this.container?.querySelector('#btn-prefill-auto-cash')?.addEventListener('click', () => {
+        const autoCounts = this.session?.draftCashCounts || {};
+        EURO_DENOMINATIONS.forEach(d => {
+          const val = autoCounts[d.id] || 0;
+          this.extraCounts[d.id] = val;
+          const input = this.container?.querySelector(`input[data-modal-denom-id="${d.id}"]`) as HTMLInputElement | null;
+          if (input) input.value = val.toString();
+        });
+        updateLiveCalculations();
+        handleDraftUpdate();
+      });
+
+      this.container?.querySelector('#btn-reset-manual-cash')?.addEventListener('click', () => {
+        EURO_DENOMINATIONS.forEach(d => {
+          this.extraCounts[d.id] = 0;
+          const input = this.container?.querySelector(`input[data-modal-denom-id="${d.id}"]`) as HTMLInputElement | null;
+          if (input) input.value = '0';
+        });
+        updateLiveCalculations();
+        handleDraftUpdate();
+      });
+
       updateLiveCalculations();
     }
 
@@ -589,6 +633,11 @@ export class CloseSessionModalComponent {
       const cashWithdrawal = computeWithdrawalData();
 
       const { session, backupName, perkResult } = db.closeSession(notes, perkId, cashWithdrawal);
+
+      // Diffusion automatique de l'alerte de fermeture aux postes clients (Vie Scolaire)
+      syncService.broadcastShutdownAlert(
+        'La permanence du foyer est fermée. Le poste foyer va être éteint et ne sera plus accessible. Téléchargement final de la base de données déclenché.'
+      ).catch(e => console.warn('Broadcast shutdown alert warning:', e));
 
       this.hide();
 

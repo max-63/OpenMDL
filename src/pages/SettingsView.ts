@@ -34,8 +34,10 @@ export class SettingsView {
     const suspendedCount = volunteers.filter(v => v.isSuspended).length;
     const perkSettings = db.getPerkSettings();
     const cashFloatSettings = db.getCashFloatSettings();
+    const autoCalcEnabled = cashFloatSettings.autoCalculationEnabled !== false;
     const baseCashFloatTotal = db.calculateBaseCashFloatTotal(cashFloatSettings.baseCounts);
     const carriedDifferencesEntries = Object.entries(cashFloatSettings.carriedOverDifferences || {}).filter(([_, diff]) => diff !== 0);
+    const appProfile = db.getAppProfile();
     const syncConfig = syncService.getConfig();
     const serverStatus = syncService.cachedServerStatus;
     const isServerRunning = !!serverStatus?.running;
@@ -53,7 +55,7 @@ export class SettingsView {
             <div class="flex items-center gap-2">
               <h1 class="text-lg font-black text-slate-900 dark:text-white tracking-tight">Gestion des Utilisateurs & Sécurité</h1>
               <span class="px-2.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px] font-extrabold uppercase tracking-wide border border-orange-500/20">
-                Espace Délégué CVL
+                Espace Administrateur
               </span>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
@@ -103,9 +105,66 @@ export class SettingsView {
             ${this.feedbackMessage.type === 'success' ? Icons.check('w-4 h-4') : Icons.alertTriangle('w-4 h-4')}
             <span>${this.feedbackMessage.text}</span>
           </div>
-          <button id="btn-close-feedback" class="hover:opacity-75 text-xs font-black">✕</button>
+          <button id="btn-close-feedback" class="hover:opacity-75 text-xs font-black">&times;</button>
         </div>
       ` : ''}
+
+      <!-- Carte Profil de la Machine (Foyer vs Vie Scolaire) -->
+      <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div class="flex items-center gap-3.5">
+            <div class="w-11 h-11 rounded-2xl ${appProfile === 'visco' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20' : 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20'} flex items-center justify-center font-bold flex-shrink-0">
+              ${appProfile === 'visco' ? Icons.vault('w-5 h-5') : Icons.cart('w-5 h-5')}
+            </div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <h2 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Profil d'Utilisation de ce PC</h2>
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${appProfile === 'visco' ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30' : 'bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30'}">
+                  ${appProfile === 'visco' ? 'Poste Vie Scolaire (Contrôle & Coffre)' : 'Poste Foyer (Caisse & Vente)'}
+                </span>
+              </div>
+              <p class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                Adaptez l'interface au rôle de ce poste : caisse de vente pour les permanences ou contrôle décaisse/coffre pour la Vie Scolaire.
+              </p>
+            </div>
+          </div>
+
+          <!-- Boutons de bascule de profil -->
+          <div class="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 self-start md:self-auto">
+            <button 
+              type="button" 
+              data-app-profile="foyer"
+              class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                appProfile === 'foyer'
+                  ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs border border-slate-200/60 dark:border-slate-700'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }"
+            >
+              ${Icons.cart('w-3.5 h-3.5')}
+              <span>Poste Foyer (Caisse)</span>
+            </button>
+            <button 
+              type="button" 
+              data-app-profile="visco"
+              class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                appProfile === 'visco'
+                  ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs border border-slate-200/60 dark:border-slate-700'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }"
+            >
+              ${Icons.vault('w-3.5 h-3.5')}
+              <span>Poste Vie Scolaire (Décaisse)</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="p-3 rounded-2xl ${appProfile === 'visco' ? 'bg-sky-500/5 border border-sky-500/15 text-sky-800 dark:text-sky-200' : 'bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400'} text-xs leading-relaxed">
+          ${appProfile === 'visco'
+            ? '<strong>Mode Vie Scolaire actif :</strong> Le dashboard de vente au comptoir est masqué. L\'interface se focalise sur le registre des décaissements, la répartition des coupures remises au coffre, le visa des dépôts et les bénévoles habilités. La réplication locale conserve toutes les données hors-ligne même si le PC foyer est éteint.'
+            : '<strong>Mode Caisse Foyer actif :</strong> Toutes les fonctionnalités de vente, catalogue, restock et encaissement sont disponibles au comptoir du foyer.'
+          }
+        </div>
+      </div>
 
       <!-- Carte Réseau & Architecture Multi-Postes -->
       <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-5">
@@ -189,7 +248,7 @@ export class SettingsView {
               ${this.syncFeedbackMessage.type === 'success' ? Icons.check('w-4 h-4 flex-shrink-0') : Icons.alertTriangle('w-4 h-4 flex-shrink-0')}
               <span>${escapeHtml(this.syncFeedbackMessage.text)}</span>
             </div>
-            <button id="btn-close-sync-feedback" class="hover:opacity-75 text-xs font-black cursor-pointer">✕</button>
+            <button id="btn-close-sync-feedback" class="hover:opacity-75 text-xs font-black cursor-pointer">&times;</button>
           </div>
         ` : ''}
 
@@ -556,10 +615,9 @@ export class SettingsView {
                     class="w-full px-3 py-2 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-orange-500 transition-colors"
                   >
                     <option value="Bénévole Permanence">Bénévole Permanence</option>
-                    <option value="Membre CVL">Membre CVL</option>
-                    <option value="Trésorier MDL">Trésorier MDL</option>
-                    <option value="Secrétaire MDL">Secrétaire MDL</option>
-                    <option value="Délégué élu CVL">Délégué élu CVL</option>
+                    <option value="Vie Scolaire">Vie Scolaire</option>
+                    <option value="Bureau MDL">Bureau MDL</option>
+                    <option value="Administrateur">Administrateur</option>
                   </select>
                 </div>
 
@@ -568,7 +626,7 @@ export class SettingsView {
                   <div class="flex items-center gap-2">
                     ${Icons.shield('w-4 h-4 text-orange-500')}
                     <div>
-                      <div class="text-xs font-bold text-slate-800 dark:text-slate-200">Droits Délégué Admin (CVL)</div>
+                      <div class="text-xs font-bold text-slate-800 dark:text-slate-200">Droits Administrateur</div>
                       <div class="text-[10px] text-slate-400">Accès à cette page des réglages</div>
                     </div>
                   </div>
@@ -671,7 +729,7 @@ export class SettingsView {
                         ${v.isAdmin ? `
                           <span class="px-2 py-0.5 rounded-lg bg-orange-500/15 text-orange-600 dark:text-orange-400 font-extrabold text-[10px] border border-orange-500/20 flex items-center gap-1">
                             ${Icons.shield('w-3 h-3')}
-                            Délégué CVL
+                            Administrateur
                           </span>
                         ` : `
                           <span class="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold text-[10px]">
@@ -841,6 +899,34 @@ export class SettingsView {
                       class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${cashFloatSettings.enabled ? 'bg-orange-600' : 'bg-slate-300 dark:bg-slate-700'}"
                     >
                       <span id="dot-cash-float-enabled" class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 ${cashFloatSettings.enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Toggle Calcul Automatique de la Monnaie & des Pièces (Smart Drawer) -->
+                <div 
+                  id="row-auto-cash-calc-enabled" 
+                  class="p-3 rounded-2xl bg-slate-50 hover:bg-slate-100/80 dark:bg-slate-800/50 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                >
+                  <div class="pr-2">
+                    <div class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <span>Calcul automatique de la monnaie & des pièces</span>
+                      <span class="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">Smart Drawer</span>
+                    </div>
+                    <div class="text-[10px] text-slate-500 dark:text-slate-400">
+                      Optimise et décompose automatiquement les pièces/billets à rendre au client selon le tiroir. Désactivez pour un calcul manuel libre.
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <span id="label-auto-cash-calc-enabled" class="text-[10px] font-black uppercase ${autoCalcEnabled ? 'text-emerald-500' : 'text-slate-400'}">
+                      ${autoCalcEnabled ? 'Activé' : 'Manuel'}
+                    </span>
+                    <button 
+                      type="button" 
+                      id="btn-toggle-auto-cash-calc-enabled"
+                      class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${autoCalcEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'}"
+                    >
+                      <span id="dot-auto-cash-calc-enabled" class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 ${autoCalcEnabled ? 'translate-x-5' : 'translate-x-0'}"></span>
                     </button>
                   </div>
                 </div>
@@ -1212,7 +1298,7 @@ export class SettingsView {
 
           <!-- Mention discrète en bas de colonne droite -->
           <div class="text-center text-[10px] text-slate-400 dark:text-slate-500 py-0.5">
-            OpenMDL v${escapeHtml(updater.getState().currentVersion)} • Logiciel Foyer & CVL • <button type="button" data-action="goto-credits" class="underline hover:text-orange-500 cursor-pointer font-bold">Mentions & Crédits</button>
+            OpenMDL v${escapeHtml(updater.getState().currentVersion)} • Logiciel Foyer & Vie Scolaire • <button type="button" data-action="goto-credits" class="underline hover:text-orange-500 cursor-pointer font-bold">Mentions & Crédits</button>
           </div>
 
         </div>
@@ -1232,6 +1318,16 @@ export class SettingsView {
     container.querySelector('#btn-close-sync-feedback')?.addEventListener('click', () => {
       this.syncFeedbackMessage = null;
       this.refresh(container);
+    });
+
+    // Sélection du profil de poste (Foyer vs Vie Scolaire)
+    container.querySelectorAll('[data-app-profile]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const profile = (e.currentTarget as HTMLElement).getAttribute('data-app-profile') as any;
+        if (!profile) return;
+        db.setAppProfile(profile);
+        this.refresh(container);
+      });
     });
 
     // Sélection du mode de synchronisation (Autonome, LAN, USB)
@@ -1960,6 +2056,7 @@ export class SettingsView {
     // Gestion des Paramètres de Fond de Caisse & Décaisse
     const currentCashFloatSettings = db.getCashFloatSettings();
     let isCashFloatEnabled = currentCashFloatSettings.enabled;
+    let isAutoCashCalcEnabled = currentCashFloatSettings.autoCalculationEnabled !== false;
 
     const rowCashFloatEnabled = container.querySelector('#row-cash-float-enabled') as HTMLElement | null;
     const btnToggleCashFloatEnabled = container.querySelector('#btn-toggle-cash-float-enabled') as HTMLButtonElement | null;
@@ -1967,6 +2064,12 @@ export class SettingsView {
     const labelCashFloatEnabled = container.querySelector('#label-cash-float-enabled') as HTMLElement | null;
     const badgeCashFloatActive = container.querySelector('#badge-cash-float-active') as HTMLElement | null;
     const cashFloatOptionsCollapsible = container.querySelector('#cash-float-options-collapsible') as HTMLElement | null;
+
+    const rowAutoCashCalcEnabled = container.querySelector('#row-auto-cash-calc-enabled') as HTMLElement | null;
+    const btnToggleAutoCashCalcEnabled = container.querySelector('#btn-toggle-auto-cash-calc-enabled') as HTMLButtonElement | null;
+    const dotAutoCashCalcEnabled = container.querySelector('#dot-auto-cash-calc-enabled') as HTMLElement | null;
+    const labelAutoCashCalcEnabled = container.querySelector('#label-auto-cash-calc-enabled') as HTMLElement | null;
+
     const cashFloatForm = container.querySelector('#cash-float-settings-form') as HTMLFormElement | null;
     const baseCashFloatTotalEl = container.querySelector('#base-cash-float-total') as HTMLElement | null;
     const btnResetCarriedDeficits = container.querySelector('#btn-reset-carried-deficits') as HTMLButtonElement | null;
@@ -2007,11 +2110,34 @@ export class SettingsView {
       }
     };
 
+    const updateAutoCashCalcUI = () => {
+      if (btnToggleAutoCashCalcEnabled && dotAutoCashCalcEnabled && labelAutoCashCalcEnabled) {
+        if (isAutoCashCalcEnabled) {
+          btnToggleAutoCashCalcEnabled.className = 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out bg-indigo-600';
+          dotAutoCashCalcEnabled.className = 'inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 translate-x-5';
+          labelAutoCashCalcEnabled.textContent = 'Activé';
+          labelAutoCashCalcEnabled.className = 'text-[10px] font-black uppercase text-emerald-500';
+        } else {
+          btnToggleAutoCashCalcEnabled.className = 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out bg-slate-300 dark:bg-slate-700';
+          dotAutoCashCalcEnabled.className = 'inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out my-0.5 ml-0.5 translate-x-0';
+          labelAutoCashCalcEnabled.textContent = 'Manuel';
+          labelAutoCashCalcEnabled.className = 'text-[10px] font-black uppercase text-slate-400';
+        }
+      }
+    };
+
     rowCashFloatEnabled?.addEventListener('click', (e) => {
       e.preventDefault();
       isCashFloatEnabled = !isCashFloatEnabled;
       updateCashFloatEnabledUI();
       db.updateCashFloatSettings({ enabled: isCashFloatEnabled });
+    });
+
+    rowAutoCashCalcEnabled?.addEventListener('click', (e) => {
+      e.preventDefault();
+      isAutoCashCalcEnabled = !isAutoCashCalcEnabled;
+      updateAutoCashCalcUI();
+      db.updateCashFloatSettings({ autoCalculationEnabled: isAutoCashCalcEnabled });
     });
 
     // Helper pour recalculer les totaux en temps réel
@@ -2088,6 +2214,7 @@ export class SettingsView {
 
       db.updateCashFloatSettings({
         enabled: isCashFloatEnabled,
+        autoCalculationEnabled: isAutoCashCalcEnabled,
         baseCounts
       });
 

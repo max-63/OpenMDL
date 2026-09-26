@@ -161,3 +161,27 @@ export function triggerFileDownload(content: Uint8Array | string, filename: stri
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+const CRC32_TABLE: number[] = (() => {
+  const table: number[] = [];
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) {
+      c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table.push(c);
+  }
+  return table;
+})();
+
+/**
+ * Calcule le CRC32 (format hexadécimal 8 caractères) compatible avec crc32fast de Rust.
+ */
+export function computeCrc32Hex(data: string | Uint8Array): string {
+  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+  let crc = 0 ^ -1;
+  for (let i = 0; i < bytes.length; i++) {
+    crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ bytes[i]) & 0xff];
+  }
+  return ((crc ^ -1) >>> 0).toString(16).padStart(8, '0');
+}

@@ -376,6 +376,16 @@ fn update_lan_server_db(db_json: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn broadcast_lan_shutdown_alert(message: String) -> Result<(), String> {
+    lan_server::broadcast_shutdown_alert(message)
+}
+
+#[tauri::command]
+fn clear_lan_shutdown_alert() -> Result<(), String> {
+    lan_server::clear_shutdown_alert()
+}
+
+#[tauri::command]
 fn get_local_ip() -> Result<String, String> {
     Ok(lan_server::get_local_ip())
 }
@@ -439,6 +449,8 @@ pub fn run() {
             get_lan_server_info,
             update_lan_server_db,
             get_local_ip,
+            broadcast_lan_shutdown_alert,
+            clear_lan_shutdown_alert,
             write_file_to_path,
             read_file_from_path
         ])

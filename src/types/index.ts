@@ -225,6 +225,137 @@ export function decomposeCashAmount(amount: number): Record<string, number> {
   return result;
 }
 
+export interface DrawerCashState {
+  available: Record<string, number>;
+  base: Record<string, number>;
+  surplus?: Record<string, number>;
+}
+
+/**
+ * Calcul intelligent du rendu de monnaie :
+ * 1. Priorise le déstockage des pièces en SURPLUS (au-dessus du fond de caisse)
+ * 2. Préserve les pièces rares / en déficit (pour éviter de forcer la Vie Scolaire à restocker)
+ * 3. Ne propose jamais de rendre des pièces que le tiroir ne possède pas
+ * 4. Règle de bon sens anti-absurdité : ne rend JAMAIS 1€ en 20 pièces de 5 centimes
+ */
+export function decomposeSmartCashChange(
+  amount: number,
+  drawerState?: DrawerCashState
+): Record<string, number> {
+  const targetCents = Math.round(amount * 100);
+  if (targetCents <= 0) return {};
+
+  if (!drawerState || !drawerState.available) {
+    return decomposeCashAmount(amount);
+  }
+
+  const { available, base } = drawerState;
+
+  // Limites strictes de bon sens pour un rendu pratique en main propre
+  const maxReasonable: Record<string, number> = {
+    '50': 2, '20': 2, '10': 2, '5': 2,
+    '2': 5,
+    '1': 4,
+    '0.50': 2,
+    '0.20': 2,
+    '0.10': 2,
+    '0.05': 1,
+    '0.02': 2,
+    '0.01': 2
+  };
+
+  const denoms = EURO_DENOMINATIONS.map(d => ({
+    id: d.id,
+    cents: Math.round(d.value * 100)
+  }));
+
+  let bestSolution: Record<string, number> | null = null;
+  let bestScore = Infinity;
+
+  function search(
+    denomIdx: number,
+    remainingCents: number,
+    currentCounts: Record<string, number>,
+    centsFromSmallCoins: number
+  ) {
+    if (remainingCents === 0) {
+      let score = 0;
+      for (const [dId, cnt] of Object.entries(currentCounts)) {
+        if (!cnt || cnt <= 0) continue;
+        const avail = available[dId] || 0;
+        const b = base[dId] || 0;
+
+        // Préférence générale pour limiter le nombre total de pièces
+        score += cnt * 2;
+
+        const surplus = Math.max(0, avail - b);
+        const fromSurplus = Math.min(cnt, surplus);
+        const fromBase = cnt - fromSurplus;
+
+        // Forte récompense si on écoule le SURPLUS de caisse
+        score -= fromSurplus * 20;
+
+        // Pénalité si on entame le fond de caisse garanti
+        score += fromBase * 30;
+
+        // Pénalité très lourde si la coupure est déjà en situation de pénurie (< 50% du fond)
+        if (avail < b * 0.5) {
+          score += fromBase * 80;
+        }
+      }
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestSolution = { ...currentCounts };
+      }
+      return;
+    }
+
+    if (denomIdx >= denoms.length) return;
+
+    const denom = denoms[denomIdx];
+    const availCount = available[denom.id] || 0;
+    const maxLimit = Math.min(
+      maxReasonable[denom.id] ?? 4,
+      availCount,
+      Math.floor(remainingCents / denom.cents)
+    );
+
+    for (let cnt = maxLimit; cnt >= 0; cnt--) {
+      const addedCents = cnt * denom.cents;
+      const newSmallCents = centsFromSmallCoins + (denom.cents < 50 ? addedCents : 0);
+
+      // Règle de bon sens : pièces < 0,50€ ne doivent pas servir à fabriquer 1,00€ ou plus
+      if (newSmallCents >= 100) {
+        continue;
+      }
+
+      if (cnt > 0) {
+        currentCounts[denom.id] = cnt;
+      } else {
+        delete currentCounts[denom.id];
+      }
+
+      search(denomIdx + 1, remainingCents - addedCents, currentCounts, newSmallCents);
+      delete currentCounts[denom.id];
+    }
+  }
+
+  search(0, targetCents, {}, 0);
+
+  if (bestSolution) {
+    const cleaned: Record<string, number> = {};
+    for (const [id, cnt] of Object.entries(bestSolution as Record<string, number>)) {
+      if (typeof cnt === 'number' && cnt > 0) {
+        cleaned[id] = cnt;
+      }
+    }
+    return cleaned;
+  }
+
+  return decomposeCashAmount(amount);
+}
+
 export function calculateCashTotal(counts: Record<string, number>): number {
   let totalCents = 0;
   for (const [id, count] of Object.entries(counts)) {
@@ -244,6 +375,7 @@ export interface CashFloatSettings {
   baseCounts: Record<string, number>;
   lastRemainingCounts?: Record<string, number>;
   carriedOverDifferences?: Record<string, number>;
+  autoCalculationEnabled?: boolean;
   updatedAt?: string;
 }
 
@@ -273,7 +405,18 @@ export interface SessionCashWithdrawal {
   cashDiscrepancy: number;
   carriedOverDeficits: Record<string, number>;
   timestamp: string;
+  visaBy?: string;
+  visaDate?: string;
+  visaNotes?: string;
 }
+
+export interface EnrichedCashWithdrawal extends SessionCashWithdrawal {
+  sessionId: string;
+  sessionEndTime: string;
+  volunteerName: string;
+}
+
+export type AppProfile = 'foyer' | 'visco';
 
 
 

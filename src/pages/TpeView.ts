@@ -77,7 +77,7 @@ export class TpeView {
         <!-- Badges d'état du boîtier -->
         <div class="flex items-center gap-2">
           ${!isAdmin ? `
-            <div class="px-3 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs flex items-center gap-1.5 border border-slate-200 dark:border-slate-700" title="Configuration réservée aux délégués CVL et administrateurs">
+            <div class="px-3 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs flex items-center gap-1.5 border border-slate-200 dark:border-slate-700" title="Configuration réservée aux administrateurs">
               ${Icons.shield('w-3.5 h-3.5 text-slate-400')}
               <span>Mode consultation</span>
             </div>
@@ -285,9 +285,9 @@ export class TpeView {
                   ` : ''}
                 </div>
               ` : `
-                <div class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-slate-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-200 dark:border-slate-700" title="Seuls les délégués CVL et administrateurs peuvent modifier ou déconnecter le TPE">
+                <div class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-slate-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-200 dark:border-slate-700" title="Seuls les administrateurs peuvent modifier ou déconnecter le TPE">
                   ${Icons.lock('w-3.5 h-3.5 text-slate-400')}
-                  <span>Config réservée Délégué CVL</span>
+                  <span>Config réservée Administrateur</span>
                 </div>
               `}
             </div>
@@ -323,28 +323,25 @@ export class TpeView {
                 <!-- Stepper d'avancement -->
                 <div class="flex items-center justify-between pb-3 border-b border-indigo-200/60 dark:border-indigo-900/60">
                   <div class="flex items-center gap-2">
-                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${this.wizardStep === 1 ? 'bg-indigo-600 text-white' : 'bg-emerald-500 text-white'
-        }">
-                      ${this.wizardStep > 1 ? '✓' : '1'}
+                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${this.wizardStep === 1 ? 'bg-indigo-600 text-white' : 'bg-emerald-500 text-white'}">
+                      ${this.wizardStep > 1 ? Icons.check('w-3.5 h-3.5') : '1'}
                     </span>
                     <span class="text-xs font-bold ${this.wizardStep === 1 ? 'text-indigo-900 dark:text-indigo-200' : 'text-slate-400'}">
                       1. Boîtier Solo
                     </span>
 
-                    <span class="text-slate-300 dark:text-slate-700">→</span>
+                    <span class="text-slate-300 dark:text-slate-700">&rarr;</span>
 
-                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${this.wizardStep === 2 ? 'bg-indigo-600 text-white' : this.wizardStep > 2 ? 'bg-emerald-500 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
-        }">
-                      ${this.wizardStep > 2 ? '✓' : '2'}
+                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${this.wizardStep === 2 ? 'bg-indigo-600 text-white' : this.wizardStep > 2 ? 'bg-emerald-500 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}">
+                      ${this.wizardStep > 2 ? Icons.check('w-3.5 h-3.5') : '2'}
                     </span>
                     <span class="text-xs font-bold ${this.wizardStep === 2 ? 'text-indigo-900 dark:text-indigo-200' : 'text-slate-400'}">
                       2. Obtenir la Clé API
                     </span>
 
-                    <span class="text-slate-300 dark:text-slate-700">→</span>
+                    <span class="text-slate-300 dark:text-slate-700">&rarr;</span>
 
-                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${this.wizardStep === 3 ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
-        }">
+                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${this.wizardStep === 3 ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}">
                       3
                     </span>
                     <span class="text-xs font-bold ${this.wizardStep === 3 ? 'text-indigo-900 dark:text-indigo-200' : 'text-slate-400'}">
@@ -353,7 +350,7 @@ export class TpeView {
                   </div>
 
                   <button id="btn-close-wizard" class="w-6 h-6 rounded-lg text-slate-400 hover:text-slate-700 flex items-center justify-center font-bold">
-                    ✕
+                    &times;
                   </button>
                 </div>
 

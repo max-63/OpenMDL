@@ -59,7 +59,7 @@ export class LoginView {
               <span>Accès Sécurisé Permanence</span>
             </div>
             <span class="text-[11px] px-2 py-0.5 rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20">
-              Session CVL
+              ${db.getAppProfile() === 'visco' ? 'Poste Vie Scolaire' : 'Poste Foyer'}
             </span>
           </div>
 
@@ -171,7 +171,7 @@ export class LoginView {
                     <div class="flex items-center gap-1.5 flex-shrink-0">
                       ${v.isAdmin ? `
                         <span class="px-2 py-0.5 rounded-md bg-orange-500/15 text-orange-600 dark:text-orange-400 font-extrabold text-[10px] border border-orange-500/20">
-                          Délégué CVL
+                          Administrateur
                         </span>
                       ` : `
                         <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-[10px]">
@@ -194,10 +194,10 @@ export class LoginView {
           <div class="p-3 rounded-2xl bg-orange-500/5 border border-orange-500/15 text-[11px] text-slate-600 dark:text-slate-400 flex items-start gap-2">
             ${Icons.shield('w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5')}
             <div>
-              <span class="font-bold text-slate-900 dark:text-white">Compte délégué initial :</span> 
+              <span class="font-bold text-slate-900 dark:text-white">Compte administrateur initial :</span> 
               identifiant <code class="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600 dark:text-orange-400 font-mono font-bold">admin</code> 
               / mot de passe <code class="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600 dark:text-orange-400 font-mono font-bold">admin</code>. 
-              Le délégué élu peut créer les comptes des autres lycéens dans l'onglet <strong>Paramètres</strong>.
+              L'administrateur peut créer les comptes des autres utilisateurs dans l'onglet <strong>Paramètres</strong>.
             </div>
           </div>
 

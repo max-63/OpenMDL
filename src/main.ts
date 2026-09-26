@@ -14,11 +14,14 @@ import { TpeView } from './pages/TpeView';
 import { PlanningView } from './pages/PlanningView';
 import { AddonsView } from './pages/AddonsView';
 import { CreditsView } from './pages/CreditsView';
+import { DecaisseView } from './pages/DecaisseView';
 import { SnakeModalComponent } from './components/SnakeModal';
+import { syncService } from './services/syncService';
+import { AppDialog } from './components/AppDialog';
 
 class App {
   private appRoot: HTMLElement;
-  private currentTab = 'dashboard';
+  private currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
   private cart: CartComponent;
 
   constructor() {
@@ -57,6 +60,16 @@ class App {
 
     // Démarrer les addons actifs au lancement
     addonManager.initActiveAddons();
+
+    // Écouter les alertes de fermeture du poste Foyer (pour clients Vie Scolaire)
+    syncService.onShutdownAlert((msg) => {
+      AppDialog.alert({
+        title: 'Fermeture du Poste Foyer',
+        message: msg,
+        type: 'warning'
+      });
+      this.render();
+    });
 
     // Support touche F11 pour basculer en plein écran Kiosque immersif
     window.addEventListener('keydown', (e) => {
@@ -137,7 +150,7 @@ class App {
     if (!currentVolunteer) {
       this.appRoot.className = 'min-h-screen flex flex-col bg-slate-100 dark:bg-[#0b0f19]';
       const loginView = new LoginView(() => {
-        this.currentTab = 'dashboard';
+        this.currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
         this.render();
       });
       this.appRoot.appendChild(loginView.render());
@@ -168,8 +181,19 @@ class App {
 
     switch (this.currentTab) {
       case 'dashboard': {
-        const dashboard = new DashboardView(this.cart);
-        pageContainer.appendChild(dashboard.render());
+        if (db.getAppProfile() === 'visco') {
+          this.currentTab = 'decaisse';
+          const decaisse = new DecaisseView();
+          pageContainer.appendChild(decaisse.render());
+        } else {
+          const dashboard = new DashboardView(this.cart);
+          pageContainer.appendChild(dashboard.render());
+        }
+        break;
+      }
+      case 'decaisse': {
+        const decaisse = new DecaisseView();
+        pageContainer.appendChild(decaisse.render());
         break;
       }
       case 'catalog': {
@@ -202,20 +226,18 @@ class App {
           const addons = new AddonsView();
           pageContainer.appendChild(addons.render());
         } else {
-          this.currentTab = 'dashboard';
-          const dashboard = new DashboardView(this.cart);
-          pageContainer.appendChild(dashboard.render());
+          this.currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
+          this.render();
         }
         break;
       }
       case 'settings': {
-        if (currentVolunteer.isAdmin) {
+        if (currentVolunteer.isAdmin || db.getAppProfile() === 'visco') {
           const settings = new SettingsView();
           pageContainer.appendChild(settings.render());
         } else {
-          this.currentTab = 'dashboard';
-          const dashboard = new DashboardView(this.cart);
-          pageContainer.appendChild(dashboard.render());
+          this.currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
+          this.render();
         }
         break;
       }
@@ -235,8 +257,13 @@ class App {
           break;
         }
 
-        const dashboard = new DashboardView(this.cart);
-        pageContainer.appendChild(dashboard.render());
+        if (db.getAppProfile() === 'visco') {
+          const decaisse = new DecaisseView();
+          pageContainer.appendChild(decaisse.render());
+        } else {
+          const dashboard = new DashboardView(this.cart);
+          pageContainer.appendChild(dashboard.render());
+        }
         break;
       }
     }

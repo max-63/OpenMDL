@@ -263,7 +263,7 @@ export function createNewAddonTemplate(id: string, name: string, author: string)
       name,
       version: '1.0.0',
       description: 'Extension personnalisée pour OpenMDL.',
-      author: author || 'Délégué CVL',
+      author: author || 'Administrateur',
       category: 'utilitaire',
       icon: 'puzzle',
       enabled: true,
@@ -286,7 +286,7 @@ export function createNewAddonTemplate(id: string, name: string, author: string)
             name,
             version: '1.0.0',
             description: 'Extension personnalisée pour OpenMDL.',
-            author: author || 'Délégué CVL',
+            author: author || 'Administrateur',
             category: 'utilitaire',
             icon: 'puzzle',
             enabled: true
@@ -352,7 +352,7 @@ OpenMDL.navigation.registerTab({
 ${name} est une extension libre et gratuite développée pour le logiciel de caisse OpenMDL (Foyer des Lycéens).
 
 ## Auteur
-Développé par **${author || 'Délégué CVL'}**.
+Développé par **${author || 'Administrateur'}**.
 
 ## Licence
 Cet addon est distribué gratuitement sous licence MIT. Toute revente ou monétisation est strictement interdite.

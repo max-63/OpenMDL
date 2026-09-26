@@ -1,4 +1,5 @@
-import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore, PerkSettings, PerkEligibilityRule, CashFloatSettings, SessionCashWithdrawal, EURO_DENOMINATIONS, decomposeCashAmount } from '../types';
+import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore, PerkSettings, PerkEligibilityRule, CashFloatSettings, SessionCashWithdrawal, EnrichedCashWithdrawal, EURO_DENOMINATIONS, decomposeCashAmount, AppProfile, DrawerCashState } from '../types';
+import { computeCrc32Hex } from './binaryCodec';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'openmdl_products',
@@ -15,7 +16,8 @@ const STORAGE_KEYS = {
   TPE_LOGS: 'openmdl_tpe_logs',
   SNAKE_SCORES: 'openmdl_snake_scores',
   PACMAN_SCORES: 'openmdl_pacman_scores',
-  CASH_FLOAT_SETTINGS: 'openmdl_cash_float_settings'
+  CASH_FLOAT_SETTINGS: 'openmdl_cash_float_settings',
+  APP_PROFILE: 'openmdl_app_profile'
 };
 
 export const DEFAULT_PERK_SETTINGS: PerkSettings = {
@@ -27,6 +29,7 @@ export const DEFAULT_PERK_SETTINGS: PerkSettings = {
 
 export const DEFAULT_CASH_FLOAT_SETTINGS: CashFloatSettings = {
   enabled: true,
+  autoCalculationEnabled: true,
   baseCounts: {
     '20': 1,
     '10': 2,
@@ -173,7 +176,7 @@ const INITIAL_VOLUNTEERS: Volunteer[] = [
     username: 'admin',
     password: 'admin',
     name: 'Administrateur',
-    role: 'Bureau MDL / CVL',
+    role: 'Administrateur',
     avatarColor: '#ea580c',
     isAdmin: true,
     isSuspended: false,
@@ -188,7 +191,7 @@ const DEMO_VOLUNTEERS: Volunteer[] = [
     username: 'admin',
     password: 'admin',
     name: 'Adrien (Responsable MDL)',
-    role: 'Délégué élu CVL / Bureau MDL',
+    role: 'Administrateur',
     avatarColor: '#ea580c',
     isAdmin: true,
     isSuspended: false,
@@ -337,8 +340,8 @@ class DatabaseService {
           id: 'vol-admin',
           username: 'admin',
           password: 'admin',
-          name: 'Délégué CVL (Admin)',
-          role: 'Délégué élu CVL / Bureau MDL',
+          name: 'Administrateur',
+          role: 'Administrateur',
           avatarColor: '#ea580c',
           isAdmin: true,
           isSuspended: false,
@@ -350,7 +353,7 @@ class DatabaseService {
         ...v,
         username: v.username || (v.id === 'vol-1' ? 'admin' : v.name.toLowerCase().replace(/[^a-z0-9]/g, '')),
         password: v.password || (v.username === 'admin' ? 'admin' : 'password123'),
-        isAdmin: v.isAdmin ?? (v.username === 'admin' || v.role.includes('Bureau') || v.role.includes('CVL')),
+        isAdmin: v.isAdmin ?? (v.username === 'admin' || v.role.includes('Bureau') || v.role.includes('Admin') || v.role.includes('CVL')),
         isSuspended: v.isSuspended ?? false,
         createdAt: v.createdAt || new Date().toISOString()
       }));
@@ -566,11 +569,11 @@ class DatabaseService {
 
     const volunteer = this.volunteers.find(v => v.username.toLowerCase() === cleanUsername);
     if (!volunteer) {
-      return { success: false, message: 'Identifiant introuvable. Demandez la création de votre compte au délégué CVL.' };
+      return { success: false, message: 'Identifiant introuvable. Demandez la création de votre compte à un administrateur.' };
     }
 
     if (volunteer.isSuspended) {
-      return { success: false, message: 'Ce compte est actuellement suspendu. Contactez le délégué élu CVL.' };
+      return { success: false, message: 'Ce compte est actuellement suspendu. Contactez un administrateur.' };
     }
 
     if (volunteer.password !== cleanPassword) {
@@ -639,7 +642,7 @@ class DatabaseService {
       username: cleanUsername,
       password: cleanPassword,
       name: cleanName,
-      role: userData.role?.trim() || (userData.isAdmin ? 'Délégué élu CVL' : 'Bénévole Permanence'),
+      role: userData.role?.trim() || (userData.isAdmin ? 'Administrateur' : 'Bénévole Permanence'),
       avatarColor: randomColor,
       isAdmin: !!userData.isAdmin,
       isSuspended: false,
@@ -1450,11 +1453,39 @@ class DatabaseService {
   // --- Gestion du Fond de Caisse de Référence & Décaisse ---
   public getCashFloatSettings(): CashFloatSettings {
     return {
+      autoCalculationEnabled: true,
       ...this.cashFloatSettings,
       baseCounts: { ...this.cashFloatSettings.baseCounts },
       lastRemainingCounts: { ...(this.cashFloatSettings.lastRemainingCounts || {}) },
       carriedOverDifferences: { ...(this.cashFloatSettings.carriedOverDifferences || {}) }
     };
+  }
+
+  public getCurrentDrawerState(incomingCash?: Record<string, number>): DrawerCashState {
+    const floatSettings = this.getCashFloatSettings();
+    const base = { ...DEFAULT_CASH_FLOAT_SETTINGS.baseCounts, ...(floatSettings.baseCounts || {}) };
+    const prevDiff = floatSettings.carriedOverDifferences || {};
+
+    const effectiveBase: Record<string, number> = {};
+    for (const denom of EURO_DENOMINATIONS) {
+      effectiveBase[denom.id] = Math.max(0, (base[denom.id] || 0) + (prevDiff[denom.id] || 0));
+    }
+
+    const sessionExtra = this.activeSession?.draftCashCounts || {};
+
+    const available: Record<string, number> = {};
+    const surplus: Record<string, number> = {};
+
+    for (const denom of EURO_DENOMINATIONS) {
+      const currentInDrawer = Math.max(
+        0,
+        (effectiveBase[denom.id] || 0) + (sessionExtra[denom.id] || 0) + (incomingCash?.[denom.id] || 0)
+      );
+      available[denom.id] = currentInDrawer;
+      surplus[denom.id] = Math.max(0, currentInDrawer - effectiveBase[denom.id]);
+    }
+
+    return { available, base: effectiveBase, surplus };
   }
 
   public updateCashFloatSettings(updates: Partial<CashFloatSettings>): void {
@@ -1809,7 +1840,7 @@ class DatabaseService {
           newStock: Math.max(2, prod.minStockAlert - 2) + qty1,
           costPrice: prod.costPrice,
           timestamp: d1.toISOString(),
-          volunteerName: 'Délégué CVL (Admin)'
+          volunteerName: 'Administrateur'
         });
 
         // Deuxième restock mensuel (milieu de mois)
@@ -1826,7 +1857,7 @@ class DatabaseService {
             newStock: Math.max(3, prod.minStockAlert - 1) + qty2,
             costPrice: prod.costPrice,
             timestamp: d2.toISOString(),
-            volunteerName: 'Délégué CVL (Admin)'
+            volunteerName: 'Administrateur'
           });
         }
       });
@@ -1859,7 +1890,7 @@ class DatabaseService {
         cardBrand: 'Apple Pay (Mastercard)',
         last4: '1094',
         transactionCode: 'TX-SUM-9280',
-        volunteerName: 'Délégué CVL (Admin)'
+        volunteerName: 'Administrateur'
       },
       {
         id: 'tpe-demo-3',
@@ -2163,8 +2194,55 @@ class DatabaseService {
       this.cashFloatSettings = { ...DEFAULT_CASH_FLOAT_SETTINGS, ...data.cashFloatSettings };
       this.saveCashFloatSettings();
     }
-    this.logActivity('BACKUP', 'Importation complète de la base de données effectuée');
+  }
+
+  public getAppProfile(): AppProfile {
+    return (localStorage.getItem(STORAGE_KEYS.APP_PROFILE) as AppProfile) || 'foyer';
+  }
+
+  public setAppProfile(profile: AppProfile): void {
+    localStorage.setItem(STORAGE_KEYS.APP_PROFILE, profile);
+    this.logActivity('INFO', `Profil de l'application basculé sur "${profile === 'visco' ? 'Vie Scolaire' : 'Foyer'}"`);
     this.notify();
+  }
+
+  public getDatabaseHash(): string {
+    const payload = {
+      p: this.products,
+      s: this.sales,
+      se: this.sessions,
+      v: this.volunteers,
+      r: this.restocks,
+      c: this.cashFloatSettings,
+      t: this.tpeSettings
+    };
+    return computeCrc32Hex(JSON.stringify(payload));
+  }
+
+  public visaCashWithdrawal(sessionId: string, visaBy: string, visaNotes?: string): boolean {
+    const session = this.sessions.find(s => s.id === sessionId);
+    if (!session || !session.cashWithdrawal) return false;
+
+    session.cashWithdrawal.visaBy = visaBy;
+    session.cashWithdrawal.visaDate = new Date().toISOString();
+    session.cashWithdrawal.visaNotes = visaNotes || '';
+
+    this.saveSessions();
+    this.logActivity('INFO', `Visa de remise d'espèces validé par ${visaBy} pour la séance de ${session.volunteerName}`);
+    this.notify();
+    return true;
+  }
+
+  public getCashWithdrawals(): EnrichedCashWithdrawal[] {
+    return this.sessions
+      .filter(s => Boolean(s.cashWithdrawal))
+      .map(s => ({
+        ...s.cashWithdrawal!,
+        sessionId: s.id,
+        sessionEndTime: s.endTime || s.startTime,
+        volunteerName: s.volunteerName
+      }))
+      .sort((a, b) => new Date(b.sessionEndTime).getTime() - new Date(a.sessionEndTime).getTime());
   }
 
   public resetAll(): void {

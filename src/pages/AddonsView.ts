@@ -34,7 +34,7 @@ export class AddonsView {
             <div class="flex items-center gap-2">
               <h1 class="text-lg font-black text-slate-900 dark:text-white tracking-tight">Bibliothèque d'Addons & Modding</h1>
               <span class="px-2.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px] font-extrabold uppercase border border-orange-500/20">
-                Espace Délégué CVL
+                Espace Administrateur
               </span>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">
@@ -206,7 +206,7 @@ export class AddonsView {
       if (!name || !name.trim()) return;
 
       const id = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-      const author = prompt('Auteur (ex: Votre nom ou Bureau CVL) :') || 'Délégué CVL';
+      const author = prompt('Auteur (ex: Votre nom ou Bureau MDL) :') || 'Administrateur';
 
       const newPkg = createNewAddonTemplate(id, name.trim(), author.trim());
       addonManager.savePackage(newPkg);

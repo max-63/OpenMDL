@@ -23,6 +23,8 @@ export class HeaderComponent {
 
     const isDark = document.documentElement.classList.contains('dark');
     const syncConfig = syncService.getConfig();
+    const appProfile = db.getAppProfile();
+    const isVisco = appProfile === 'visco';
 
     header.innerHTML = `
       <div class="flex items-center justify-between h-14">
@@ -33,84 +35,130 @@ export class HeaderComponent {
               <img src="/assets/logo_banniere.png" alt="OpenMDL" class="h-9 w-auto object-contain group-hover:scale-105 transition-transform" />
               <div class="flex flex-col">
                 <span class="font-extrabold text-base text-slate-900 dark:text-white tracking-tight leading-tight">OpenMDL</span>
-                <span class="text-[10px] font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wider">Foyer des Lycéens</span>
+                <span class="text-[10px] font-semibold ${isVisco ? 'text-sky-600 dark:text-sky-400' : 'text-orange-600 dark:text-orange-400'} uppercase tracking-wider">
+                  ${isVisco ? 'Vie Scolaire' : 'Foyer des Lycéens'}
+                </span>
               </div>
             </div>
 
             <!-- Onglets de Navigation conviviaux et arrondis -->
             <nav class="hidden md:flex items-center gap-1.5">
-              <button data-tab="dashboard" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'dashboard'
-        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-      }">
-                Caisse
-              </button>
+              ${isVisco ? `
+                <!-- Navigation Mode Vie Scolaire (Sans Caisse de vente) -->
+                <button data-tab="decaisse" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'decaisse'
+                  ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  ${Icons.vault('w-3.5 h-3.5')}
+                  <span>Décaisse & Coffre</span>
+                </button>
 
-              <button data-tab="catalog" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'catalog'
-        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-      }">
-                Catalogue & Tarifs
-              </button>
+                <button data-tab="agenda" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'agenda'
+                  ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  ${Icons.calendar('w-3.5 h-3.5')}
+                  <span>Planning Foyer</span>
+                </button>
 
-              <button data-tab="restock" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'restock'
-        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-      }">
-                Restock Express
-              </button>
-
-              <button data-tab="stats" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'stats'
-        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-      }">
-                Rapports & Ventes
-              </button>
-
-              <button data-tab="agenda" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'agenda'
-        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-      }">
-                ${Icons.calendar('w-3.5 h-3.5')}
-                <span>Planning Foyer</span>
-              </button>
-
-              <button data-tab="tpe" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'tpe'
-        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-      }">
-                ${Icons.creditCard('w-3.5 h-3.5')}
-                <span>Gestion TPE</span>
-              </button>
-
-              ${volunteer?.isAdmin ? `
-                <button data-tab="addons" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'addons'
-          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-          : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-        }">
-                  ${Icons.puzzle('w-3.5 h-3.5')}
-                  <span>Addons</span>
+                <button data-tab="stats" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'stats'
+                  ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  ${Icons.barChart('w-3.5 h-3.5')}
+                  <span>Rapports & Ventes</span>
                 </button>
 
                 <button data-tab="settings" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'settings'
-          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-          : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-        }">
+                  ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
                   ${Icons.settings('w-3.5 h-3.5')}
                   <span>Paramètres</span>
                 </button>
-              ` : ''}
-
-              <!-- Onglets dynamiques créés par les Addons actifs -->
-              ${addonManager.getRegisteredTabs().map(tab => `
-                <button data-tab="${tab.id}" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === tab.id
-          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-          : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-        }">
-                  ${(Icons as any)[tab.icon] ? (Icons as any)[tab.icon]('w-3.5 h-3.5') : Icons.puzzle('w-3.5 h-3.5')}
-                  <span>${tab.label}</span>
+              ` : `
+                <!-- Navigation Mode Foyer Standard (Avec Caisse de vente) -->
+                <button data-tab="dashboard" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'dashboard'
+                  ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  Caisse
                 </button>
-              `).join('')}
+
+                <button data-tab="catalog" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'catalog'
+                  ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  Catalogue & Tarifs
+                </button>
+
+                <button data-tab="restock" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'restock'
+                  ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  Restock Express
+                </button>
+
+                <button data-tab="decaisse" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'decaisse'
+                  ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  ${Icons.vault('w-3.5 h-3.5')}
+                  <span>Décaisse</span>
+                </button>
+
+                <button data-tab="stats" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'stats'
+                  ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  Rapports & Ventes
+                </button>
+
+                <button data-tab="agenda" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'agenda'
+                  ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  ${Icons.calendar('w-3.5 h-3.5')}
+                  <span>Planning Foyer</span>
+                </button>
+
+                <button data-tab="tpe" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'tpe'
+                  ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }">
+                  ${Icons.creditCard('w-3.5 h-3.5')}
+                  <span>Gestion TPE</span>
+                </button>
+
+                ${volunteer?.isAdmin ? `
+                  <button data-tab="addons" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'addons'
+                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }">
+                    ${Icons.puzzle('w-3.5 h-3.5')}
+                    <span>Addons</span>
+                  </button>
+
+                  <button data-tab="settings" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'settings'
+                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }">
+                    ${Icons.settings('w-3.5 h-3.5')}
+                    <span>Paramètres</span>
+                  </button>
+                ` : ''}
+
+                <!-- Onglets dynamiques créés par les Addons actifs -->
+                ${addonManager.getRegisteredTabs().map(tab => `
+                  <button data-tab="${tab.id}" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === tab.id
+                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }">
+                    ${(Icons as any)[tab.icon] ? (Icons as any)[tab.icon]('w-3.5 h-3.5') : Icons.puzzle('w-3.5 h-3.5')}
+                    <span>${tab.label}</span>
+                  </button>
+                `).join('')}
+              `}
             </nav>
           </div>
 
@@ -154,7 +202,7 @@ export class HeaderComponent {
                 <span class="w-2.5 h-2.5 rounded-full ${volunteer.isAdmin ? 'bg-orange-500 shadow-orange-500/50' : 'bg-emerald-500 shadow-emerald-500/50'} shadow-xs"></span>
                 <span class="font-semibold text-slate-700 dark:text-slate-200">${volunteer.name}</span>
                 ${volunteer.isAdmin ? `
-                  <span class="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px] font-extrabold">CVL</span>
+                  <span class="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px] font-extrabold">ADMIN</span>
                 ` : ''}
               </div>
             ` : ''}
@@ -199,7 +247,7 @@ export class HeaderComponent {
     });
 
     header.querySelector('#nav-brand')?.addEventListener('click', () => {
-      this.onTabChange('dashboard');
+      this.onTabChange(isVisco ? 'decaisse' : 'dashboard');
     });
 
     header.querySelector('#btn-toggle-theme')?.addEventListener('click', () => {

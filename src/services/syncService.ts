@@ -11,6 +11,8 @@ export interface LanServerStatus {
   ip: string;
   has_pin: boolean;
   client_count: number;
+  db_hash?: string;
+  shutdown_alert?: boolean;
 }
 
 export interface SyncConfig {
@@ -20,7 +22,7 @@ export interface SyncConfig {
     port: number;
     pin: string;
     serverUrl: string;
-    autoSyncInterval: number; // en secondes (0 = desactive)
+    autoSyncInterval: number; // en secondes (30 par defaut)
   };
   usb: {
     role: UsbRole;
@@ -36,7 +38,7 @@ const DEFAULT_SYNC_CONFIG: SyncConfig = {
     port: 4123,
     pin: '',
     serverUrl: 'http://192.168.1.50:4123',
-    autoSyncInterval: 15
+    autoSyncInterval: 30
   },
   usb: {
     role: 'server',
@@ -52,11 +54,19 @@ export class SyncService {
   private config: SyncConfig;
   private autoSyncTimer: any = null;
   private listeners: Set<(config: SyncConfig, status: string) => void> = new Set();
+  private shutdownListeners: Set<(message: string) => void> = new Set();
+
   public currentStatus: 'idle' | 'syncing' | 'success' | 'error' = 'idle';
   public lastSyncTime: string | null = null;
   public lastSyncMessage: string = '';
   public cachedLocalIp: string = '127.0.0.1';
   public cachedServerStatus: LanServerStatus | null = null;
+
+  public isServerReachable: boolean = true;
+  public lastSyncedDbHash: string = localStorage.getItem('openmdl_synced_db_hash') || '';
+  public lastRemoteDbHash: string = '';
+  public shutdownAlertActive: boolean = false;
+  public shutdownAlertMessage: string = '';
 
   private constructor() {
     this.config = this.loadConfig();
@@ -80,6 +90,11 @@ export class SyncService {
   public subscribe(callback: (config: SyncConfig, status: string) => void): () => void {
     this.listeners.add(callback);
     return () => this.listeners.delete(callback);
+  }
+
+  public onShutdownAlert(callback: (message: string) => void): () => void {
+    this.shutdownListeners.add(callback);
+    return () => this.shutdownListeners.delete(callback);
   }
 
   private notify(statusMsg: string): void {
@@ -206,7 +221,32 @@ export class SyncService {
     }
   }
 
-  // --- Client LAN ---
+  public async broadcastShutdownAlert(message?: string): Promise<void> {
+    const msg = message || 'La permanence du foyer se termine. Le poste va devenir inaccessible.';
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('broadcast_lan_shutdown_alert', { message: msg });
+    } catch {
+      const targetUrl = `http://127.0.0.1:${this.config.lan.port || 4123}`;
+      fetch(`${targetUrl}/api/shutdown_alert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: msg
+      }).catch(() => {});
+    }
+    this.notify('Alerte de fermeture diffusee aux postes clients.');
+  }
+
+  public async clearShutdownAlert(): Promise<void> {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('clear_lan_shutdown_alert');
+    } catch {
+      // Ignorer
+    }
+  }
+
+  // --- Client LAN & Synchronisation intelligente 30s par empreinte de hash ---
 
   public async testLanConnection(url?: string, pin?: string): Promise<{ success: boolean; message: string; info?: any }> {
     const targetUrl = (url || this.config.lan.serverUrl).replace(/\/+$/, '');
@@ -249,6 +289,75 @@ export class SyncService {
     }
   }
 
+  public async checkHashAndSync(): Promise<{ synced: boolean; reachable: boolean; message: string }> {
+    if (this.config.mode !== 'lan' || this.config.lan.role !== 'client') {
+      return { synced: false, reachable: false, message: 'Mode Client LAN inactif' };
+    }
+
+    const targetUrl = this.config.lan.serverUrl.replace(/\/+$/, '');
+
+    try {
+      const res = await fetch(`${targetUrl}/api/ping`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(3500)
+      });
+
+      if (!res.ok) {
+        throw new Error(`Reponse serveur HTTP ${res.status}`);
+      }
+
+      const pingData = await res.json();
+      this.isServerReachable = true;
+
+      // 1. Alerte de fin de permanence diffusee par le Foyer
+      if (pingData.shutdown_alert && !this.shutdownAlertActive) {
+        this.shutdownAlertActive = true;
+        this.shutdownAlertMessage = pingData.shutdown_message || 'La permanence du foyer se termine. Le poste va devenir inaccessible.';
+        
+        // Alerte visuelle pour l'utilisateur
+        this.shutdownListeners.forEach(cb => cb(this.shutdownAlertMessage));
+
+        // Telechargement immediat et inconditionnel de la base finale
+        await this.syncFromLanServer();
+        this.notify('Alerte Foyer : Copie finale de la base de donnees telechargee avec succes !');
+        return { synced: true, reachable: true, message: 'Base finale telechargee avec succes.' };
+      } else if (!pingData.shutdown_alert) {
+        this.shutdownAlertActive = false;
+      }
+
+      // 2. Verification de l'empreinte hash de la base de donnees
+      const remoteHash = pingData.db_hash || '';
+      this.lastRemoteDbHash = remoteHash;
+
+      if (remoteHash && remoteHash !== this.lastSyncedDbHash) {
+        // Le hash distant differe : nouvelle vente ou nouvelle decaisse, on telecharge !
+        const syncRes = await this.syncFromLanServer();
+        if (syncRes.success) {
+          this.lastSyncedDbHash = remoteHash;
+          localStorage.setItem('openmdl_synced_db_hash', remoteHash);
+          return { synced: true, reachable: true, message: 'Base de donnees synchronisee suite a modification.' };
+        }
+      } else {
+        // Hash identique : aucune bande passante gaspillee, copie locale deja a jour
+        this.currentStatus = 'success';
+        this.lastSyncTime = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        this.lastSyncMessage = `Donnees synchronisees (empreinte verifiee a ${this.lastSyncTime})`;
+        this.notify(this.lastSyncMessage);
+        return { synced: false, reachable: true, message: this.lastSyncMessage };
+      }
+
+      return { synced: false, reachable: true, message: 'Verification achevee.' };
+    } catch (err: any) {
+      // Le serveur Foyer est eteint : LE CLIENT CONSERVE TOUTES SES DONNEES LOCALES SANS RIEN SUPPRIMER
+      this.isServerReachable = false;
+      this.currentStatus = 'idle';
+      this.lastSyncMessage = 'Poste Foyer eteint / inaccessible. Consultation active sur la replique locale securisee.';
+      this.notify(this.lastSyncMessage);
+      return { synced: false, reachable: false, message: this.lastSyncMessage };
+    }
+  }
+
   public async syncFromLanServer(): Promise<{ success: boolean; message: string }> {
     if (this.config.mode !== 'lan' || this.config.lan.role !== 'client') {
       return { success: false, message: 'Le mode Client LAN n\'est pas active.' };
@@ -276,6 +385,7 @@ export class SyncService {
         throw new Error(`Erreur serveur (${res.status} ${res.statusText})`);
       }
 
+      const remoteHashHeader = res.headers.get('X-DB-Hash');
       const remoteData = await res.json();
       if (!remoteData || typeof remoteData !== 'object' || !Array.isArray(remoteData.products)) {
         throw new Error('Donnees recues invalides ou corrompues.');
@@ -283,9 +393,15 @@ export class SyncService {
 
       db.importData(remoteData);
 
+      if (remoteHashHeader) {
+        this.lastSyncedDbHash = remoteHashHeader;
+        localStorage.setItem('openmdl_synced_db_hash', remoteHashHeader);
+      }
+
       this.currentStatus = 'success';
+      this.isServerReachable = true;
       this.lastSyncTime = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      this.lastSyncMessage = `Synchronise avec succes a ${this.lastSyncTime}`;
+      this.lastSyncMessage = `Replique mise a jour a ${this.lastSyncTime}`;
       this.notify(this.lastSyncMessage);
 
       return { success: true, message: this.lastSyncMessage };
@@ -299,10 +415,13 @@ export class SyncService {
 
   private startAutoSyncTimer(): void {
     this.stopAutoSyncTimer();
-    const intervalSec = Number(this.config.lan.autoSyncInterval);
+    const intervalSec = Number(this.config.lan.autoSyncInterval) || 30;
     if (intervalSec > 0 && this.config.mode === 'lan' && this.config.lan.role === 'client') {
+      // Verification initiale immediate
+      this.checkHashAndSync();
+      // Verification recurrente toutes les 30 secondes
       this.autoSyncTimer = setInterval(() => {
-        this.syncFromLanServer();
+        this.checkHashAndSync();
       }, intervalSec * 1000);
     }
   }
