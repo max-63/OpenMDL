@@ -1,13 +1,13 @@
-import { CartItem, Product } from '../types';
+import { CartItem, Product, PaymentMethod } from '../types';
 import { Icons } from './Icons';
 import { escapeHtml } from '../utils/security';
 
 export class CartComponent {
   private items: CartItem[] = [];
-  private onCheckoutCallback: () => void;
+  private onCheckoutCallback: (method: PaymentMethod) => void;
   private onUpdateCallback: () => void;
 
-  constructor(onCheckout: () => void, onUpdate: () => void) {
+  constructor(onCheckout: (method: PaymentMethod) => void, onUpdate: () => void) {
     this.onCheckoutCallback = onCheckout;
     this.onUpdateCallback = onUpdate;
   }
@@ -141,28 +141,62 @@ export class CartComponent {
 
     container.appendChild(listContainer);
 
-    // Pied du Panier (Total & Action d'encaissement avec peps)
+    // Pied du Panier (Total & Actions d'encaissement direct Espèces vs Carte TPE)
     const footer = document.createElement('div');
-    footer.className = 'p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4';
+    footer.className = 'p-4 sm:p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3';
 
     footer.innerHTML = `
-      <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-baseline justify-between shadow-xs">
-        <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Total à payer</span>
-        <span class="font-mono-nums font-black text-2xl text-slate-900 dark:text-white">${total.toFixed(2)} €</span>
+      <div class="p-3.5 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-baseline justify-between shadow-xs">
+        <div>
+          <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 block">TOTAL COMMANDE</span>
+          <span class="text-xs text-slate-500 dark:text-slate-400 font-bold">${totalCount} article${totalCount > 1 ? 's' : ''}</span>
+        </div>
+        <span class="font-mono-nums font-black text-2xl sm:text-3xl text-slate-900 dark:text-white tracking-tight">${total.toFixed(2)} €</span>
       </div>
 
-      <div class="flex items-center gap-2">
-        <button id="btn-clear-cart" class="p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-rose-500/10 hover:text-rose-600 hover:border-rose-500/30 text-slate-400 transition-all disabled:opacity-20 disabled:pointer-events-none" ${this.items.length === 0 ? 'disabled' : ''} title="Annuler le ticket">
-          ${Icons.trash('w-4 h-4')}
+      <!-- 2 Gros Boutons d'Encaissement Direct (Rush 1 Clic) -->
+      <div class="grid grid-cols-2 gap-2.5">
+        <button 
+          id="btn-checkout-cash" 
+          type="button"
+          class="group relative py-3.5 px-2.5 sm:px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/25 active:scale-[0.97] transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex flex-col items-center justify-center gap-1 overflow-hidden" 
+          ${this.items.length === 0 ? 'disabled' : ''}
+          title="Encaisser en Espèces [Accès direct]"
+        >
+          <div class="flex items-center gap-1.5 font-black text-xs uppercase tracking-wider">
+            ${Icons.banknote('w-4 h-4')}
+            <span>Espèces</span>
+          </div>
+          <span class="font-mono-nums font-black text-sm text-emerald-100 group-hover:text-white tracking-tight">${total.toFixed(2)} €</span>
         </button>
 
-        <button id="btn-checkout" class="flex-1 py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-sm shadow-emerald-600/20 active:scale-[0.98] transition-all disabled:opacity-30 disabled:pointer-events-none flex items-center justify-between" ${this.items.length === 0 ? 'disabled' : ''}>
-          <span class="flex items-center gap-2">
-            ${Icons.check('w-4 h-4')}
-            <span>Encaisser</span>
-          </span>
-          <span class="font-mono-nums font-black text-base">${total.toFixed(2)} €</span>
+        <button 
+          id="btn-checkout-tpe" 
+          type="button"
+          class="group relative py-3.5 px-2.5 sm:px-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/25 active:scale-[0.97] transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex flex-col items-center justify-center gap-1 overflow-hidden" 
+          ${this.items.length === 0 ? 'disabled' : ''}
+          title="Encaisser par Carte / TPE SumUp [Accès direct]"
+        >
+          <div class="flex items-center gap-1.5 font-black text-xs uppercase tracking-wider">
+            ${Icons.creditCard('w-4 h-4')}
+            <span>Carte TPE</span>
+          </div>
+          <span class="font-mono-nums font-black text-sm text-indigo-100 group-hover:text-white tracking-tight">${total.toFixed(2)} €</span>
         </button>
+      </div>
+
+      <div class="flex items-center justify-between text-xs px-1 pt-0.5">
+        <button 
+          id="btn-clear-cart" 
+          type="button"
+          class="text-[11px] font-bold text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 transition-colors flex items-center gap-1.5 py-1 disabled:opacity-20 disabled:pointer-events-none cursor-pointer" 
+          ${this.items.length === 0 ? 'disabled' : ''} 
+          title="Vider et réinitialiser le panier"
+        >
+          ${Icons.trash('w-3.5 h-3.5')}
+          <span>Vider le ticket</span>
+        </button>
+        <span class="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">1 clic = mode direct</span>
       </div>
     `;
 
@@ -170,9 +204,15 @@ export class CartComponent {
       this.clear();
     });
 
-    footer.querySelector('#btn-checkout')?.addEventListener('click', () => {
+    footer.querySelector('#btn-checkout-cash')?.addEventListener('click', () => {
       if (this.items.length > 0) {
-        this.onCheckoutCallback();
+        this.onCheckoutCallback('especes');
+      }
+    });
+
+    footer.querySelector('#btn-checkout-tpe')?.addEventListener('click', () => {
+      if (this.items.length > 0) {
+        this.onCheckoutCallback('tpe');
       }
     });
 

@@ -25,9 +25,10 @@ export class CheckoutModalComponent {
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private autoCalcOverride: boolean | null = null;
 
-  constructor(items: CartItem[], onComplete: () => void) {
+  constructor(items: CartItem[], onComplete: () => void, initialMethod: PaymentMethod = 'especes') {
     this.items = items;
     this.totalAmount = items.reduce((sum, i) => sum + (i.product.price * i.quantity), 0);
+    this.selectedMethod = initialMethod;
     // Par défaut : 0 € donné (le bénévole clique sur les coupures reçues ou sur 'Montant exact')
     this.cashGiven = 0;
     this.givenCounts = {};
@@ -39,6 +40,14 @@ export class CheckoutModalComponent {
     this.container.className = 'fixed inset-0 z-50 flex items-center justify-center p-1 sm:p-2 bg-black/85 backdrop-blur-md animate-enter';
     this.render();
     document.body.appendChild(this.container);
+
+    // Si ouvert directement en TPE avec boîtier SumUp connecté -> envoyer l'ordre automatiquement
+    if (this.selectedMethod === 'tpe') {
+      const tpe = db.getTpeSettings();
+      if (tpe.isConnected && tpe.apiKey && this.tpeState === 'idle') {
+        this.startTpePayment();
+      }
+    }
 
     this.keydownHandler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -52,6 +61,15 @@ export class CheckoutModalComponent {
         if (this.selectedMethod === 'especes' && this.cashGiven >= this.totalAmount) {
           e.preventDefault();
           this.confirmCashSale();
+        } else if (this.selectedMethod === 'tpe') {
+          const tpe = db.getTpeSettings();
+          if (!tpe.isConnected || !tpe.apiKey) {
+            e.preventDefault();
+            this.confirmManualTpeSale();
+          } else if (this.tpeState === 'idle') {
+            e.preventDefault();
+            this.startTpePayment();
+          }
         }
       }
     };

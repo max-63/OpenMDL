@@ -18,6 +18,7 @@ import { DecaisseView } from './pages/DecaisseView';
 import { SnakeModalComponent } from './components/SnakeModal';
 import { syncService } from './services/syncService';
 import { AppDialog } from './components/AppDialog';
+import { PaymentMethod } from './types';
 
 class App {
   private appRoot: HTMLElement;
@@ -37,9 +38,9 @@ class App {
       document.documentElement.classList.add('dark');
     }
 
-    // Instanciation du panier
+    // Instanciation du panier avec support du mode de paiement direct
     this.cart = new CartComponent(
-      () => this.openCheckout(),
+      (method: PaymentMethod) => this.openCheckout(method),
       () => this.render()
     );
     (window as any).__OPENMDL_CART__ = this.cart;
@@ -124,20 +125,35 @@ class App {
         inputSequence = [];
         const snakeModal = new SnakeModalComponent();
         snakeModal.show();
+        return;
+      }
+
+      // Raccourcis caisse Dashboard en plein rush (quand aucune modale n'est ouverte)
+      if (this.currentTab === 'dashboard' && this.cart.getItems().length > 0 && !document.querySelector('.fixed.inset-0.z-50')) {
+        if (e.key === 'F1') {
+          e.preventDefault();
+          this.openCheckout('especes');
+        } else if (e.key === 'F2') {
+          e.preventDefault();
+          this.openCheckout('tpe');
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          this.openCheckout('especes');
+        }
       }
     });
 
     this.render();
   }
 
-  private openCheckout(): void {
+  private openCheckout(defaultMethod: PaymentMethod = 'especes'): void {
     const items = this.cart.getItems();
     if (items.length === 0) return;
 
     const checkoutModal = new CheckoutModalComponent(items, () => {
       this.cart.clear();
       this.render();
-    });
+    }, defaultMethod);
     checkoutModal.show();
   }
 
