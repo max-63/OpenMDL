@@ -18,6 +18,7 @@ import { DecaisseView } from './pages/DecaisseView';
 import { ChatView } from './pages/ChatView';
 import { ProfileView } from './pages/ProfileView';
 import { SnakeModalComponent } from './components/SnakeModal';
+import { TerminalPosComponent } from './components/TerminalPos';
 import { syncService } from './services/syncService';
 import { AppDialog } from './components/AppDialog';
 import { PaymentMethod } from './types';
@@ -94,31 +95,24 @@ class App {
       }
     });
 
-    // Easter Egg: Haut Haut Bas Bas Droite Droite A A (Sauf Trésorier et Secrétaire)
+    // Easter Egg Snake/Pacman: Haut Haut Bas Bas Droite Droite A A (Sauf Trésorier et Secrétaire)
     const SECRET_CODE = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowRight', 'a', 'a'];
+    // Mode Console Terminal POS : Droite Droite Bas Bas M D L
+    const TERMINAL_CODE = ['ArrowRight', 'ArrowRight', 'ArrowDown', 'ArrowDown', 'm', 'd', 'l'];
+    
     let inputSequence: string[] = [];
     let sequenceTimer: any = null;
+    let terminalPosComponent: TerminalPosComponent | null = null;
 
     window.addEventListener('keydown', (e) => {
-      // Ignorer si l'utilisateur saisit dans un champ de texte
+      // Ignorer si l'utilisateur saisit dans un champ de texte classique
       const target = e.target as HTMLElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
         return;
       }
 
-      // Vérifier restriction : la modal ne marche QUE si un bénévole est connecté
-      const user = db.getCurrentVolunteer();
-      if (!user) {
-        return;
-      }
-      const textToCheck = `${user.role} ${user.name} ${user.username}`.toLowerCase();
-      const isExcluded = textToCheck.includes('tresor') || textToCheck.includes('trésor')
-        || textToCheck.includes('secret') || textToCheck.includes('secrét');
-      if (isExcluded) {
-        return;
-      }
-
-      const key = e.key.toLowerCase() === 'a' ? 'a' : e.key;
+      // Normalisation de la touche (ex: M -> m)
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       inputSequence.push(key);
 
       if (sequenceTimer) clearTimeout(sequenceTimer);
@@ -126,16 +120,43 @@ class App {
         inputSequence = [];
       }, 3000);
 
-      if (inputSequence.length > SECRET_CODE.length) {
+      // Limiter la taille du buffer au max des 2 séquences
+      const maxLen = Math.max(SECRET_CODE.length, TERMINAL_CODE.length);
+      if (inputSequence.length > maxLen) {
         inputSequence.shift();
       }
 
-      const match = inputSequence.length === SECRET_CODE.length && SECRET_CODE.every((val, idx) => inputSequence[idx] === val);
-      if (match) {
+      // 1. Détection du code Terminal POS (Droite Droite Bas Bas M D L)
+      const lastTerminalSeq = inputSequence.slice(-TERMINAL_CODE.length);
+      const matchTerminal = lastTerminalSeq.length === TERMINAL_CODE.length && TERMINAL_CODE.every((val, idx) => lastTerminalSeq[idx] === val);
+      if (matchTerminal) {
         inputSequence = [];
-        const snakeModal = new SnakeModalComponent();
-        snakeModal.show();
+        if (!terminalPosComponent) {
+          terminalPosComponent = new TerminalPosComponent(() => {
+            this.render();
+          });
+        }
+        terminalPosComponent.toggle();
         return;
+      }
+
+      // 2. Détection Easter Egg Pacman / Snake
+      const user = db.getCurrentVolunteer();
+      if (user) {
+        const textToCheck = `${user.role} ${user.name} ${user.username}`.toLowerCase();
+        const isExcluded = textToCheck.includes('tresor') || textToCheck.includes('trésor')
+          || textToCheck.includes('secret') || textToCheck.includes('secrét');
+        
+        if (!isExcluded) {
+          const lastSnakeSeq = inputSequence.slice(-SECRET_CODE.length);
+          const matchSnake = lastSnakeSeq.length === SECRET_CODE.length && SECRET_CODE.every((val, idx) => lastSnakeSeq[idx] === val);
+          if (matchSnake) {
+            inputSequence = [];
+            const snakeModal = new SnakeModalComponent();
+            snakeModal.show();
+            return;
+          }
+        }
       }
 
       // Raccourcis caisse Dashboard en plein rush (quand aucune modale n'est ouverte)
