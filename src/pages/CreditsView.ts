@@ -26,7 +26,7 @@ export class CreditsView {
         </div>
 
         <div class="px-3.5 py-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-600 dark:text-slate-300 self-start sm:self-auto">
-          v1.0.5 • 2026
+          v\${__APP_VERSION__} • 2026
         </div>
       </div>
 

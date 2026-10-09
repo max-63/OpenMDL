@@ -108,10 +108,10 @@ Les paquets pré-compilés se trouvent dans le dossier `dist-installers/` :
 
 | Système d'exploitation | Format de paquet | Utilisation |
 | :--- | :--- | :--- |
-| **Linux Mint / Ubuntu / Debian** | `OpenMDL_1.0.0_amd64.deb` | Double-clic pour installer via la logithèque (gère automatiquement les dépendances) |
-| **Fedora / RedHat / openSUSE** | `OpenMDL-1.0.0-1.x86_64.rpm` | Installateur RPM natif |
-| **Toutes distributions Linux** | `OpenMDL_1.0.0_amd64.AppImage` | Fichier portable autonome : clic droit > Exécuter, aucune installation nécessaire |
-| **Windows 10 / 11** | `OpenMDL_1.0.0_x64-setup.exe` | Installateur Windows NSIS complet (avec raccourci Bureau et Menu Démarrer) |
+| **Linux Mint / Ubuntu / Debian** | `OpenMDL_1.0.9_amd64.deb` | Double-clic pour installer via la logithèque (gère automatiquement les dépendances) |
+| **Fedora / RedHat / openSUSE** | `OpenMDL-1.0.9-1.x86_64.rpm` | Installateur RPM natif |
+| **Toutes distributions Linux** | `OpenMDL_1.0.9_amd64.AppImage` | Fichier portable autonome : clic droit > Exécuter, aucune installation nécessaire |
+| **Windows 10 / 11** | `OpenMDL_1.0.9_x64-setup.exe` | Installateur Windows NSIS complet (avec raccourci Bureau et Menu Démarrer) |
 
 ---
 
@@ -169,10 +169,14 @@ Une documentation exhaustive décrivant chaque module, la comptabilité, le stoc
 
 ---
 
-## Données & Confidentialité
+## Données, Stockage & Confidentialité
 
-- **Stockage 100% local** : Les données de ventes et le catalogue sont enregistrés dans le navigateur local et sécurisés dans le répertoire utilisateur de l'OS (`~/.local/share/openmdl/` sous Linux, `%APPDATA%/openmdl/` sous Windows).
-- **Sauvegardes Binaires Haute Performance (.mdlb)** : Sauvegardes ultra-compactes compressées en Zlib avec intégrité garantie par checksum CRC32. Clôture automatique, export sur clé USB et restauration instantanée avec rétrocompatibilité JSON.
+- **Base de données SQLite & Stockage 100% local** : L'ensemble des données (ventes, catalogue, stocks, utilisateurs, messages) est conservé dans une base relationnelle SQLite native gérée en Rust dans le répertoire applicatif de l'OS (`~/.local/share/openmdl/openmdl.db` sous Linux, `%APPDATA%/openmdl/openmdl.db` sous Windows).
+- **Synchronisation & Architecture Réseau LAN** :
+  - **Autorité Serveur Foyer** : Le poste Foyer fait autorité sur la base de données.
+  - **Poste Vie Scolaire Client** : Réplication automatique des données manquantes en lecture seule et enregistrement des bordereaux de remise au coffre.
+  - **Consensus sur les Messages** : Vote à la majorité locale et synchronisation bilatérale des messages échangés hors présence du serveur.
+- **Sauvegardes Binaires Haute Performance (.mdlb)** : Sauvegardes ultra-compactes compressées en Zlib avec intégrité garantie par checksum CRC32. Clôture automatique, export sur clé USB et restauration instantanée.
 
 ---
 
