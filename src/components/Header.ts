@@ -196,15 +196,44 @@ export class HeaderComponent {
               ${isDark ? Icons.sun('w-4 h-4') : Icons.moon('w-4 h-4')}
             </button>
 
-            <!-- Profil Bénévole -->
+            <!-- Messagerie & Chat (si activé dans les réglages) -->
+            ${db.getChatSettings().enabled ? (() => {
+              const unreadDMs = db.getUnreadDirectMessagesCount();
+              return `
+                <button id="btn-nav-chat" data-tab="chat" class="relative px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'chat'
+                  ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                }" title="Messagerie instantanée & Salons de discussion ${unreadDMs > 0 ? `(${unreadDMs} nouveau(x) message(s) privé(s))` : ''}">
+                  <div class="relative flex items-center justify-center">
+                    ${Icons.messageSquare('w-3.5 h-3.5')}
+                    <span id="chat-badge-dot" class="${unreadDMs > 0 ? '' : 'hidden '}absolute -top-1 -right-1 w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
+                  </div>
+                  <span>Chat</span>
+                  <span id="chat-badge-count" class="${unreadDMs > 0 ? '' : 'hidden '}px-1.5 py-0.2 rounded-full bg-purple-500 text-white text-[9px] font-black tracking-tight shadow-xs">
+                    ${unreadDMs}
+                  </span>
+                </button>
+              `;
+            })() : ''}
+
+            <!-- Profil Bénévole (Cliquable pour ouvrir l'onglet Profil) -->
             ${volunteer ? `
-              <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
-                <span class="w-2.5 h-2.5 rounded-full ${volunteer.isAdmin ? 'bg-orange-500 shadow-orange-500/50' : 'bg-emerald-500 shadow-emerald-500/50'} shadow-xs"></span>
-                <span class="font-semibold text-slate-700 dark:text-slate-200">${volunteer.name}</span>
+              <button data-tab="profile" class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all cursor-pointer border ${this.currentTab === 'profile'
+                ? 'bg-orange-500/15 border-orange-500/30 text-orange-600 dark:text-orange-400'
+                : 'bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+              } text-xs" title="Gérer ma photo de profil, couleurs et personnalisation">
+                ${volunteer.avatarUrl ? `
+                  <img src="${volunteer.avatarUrl}" alt="${volunteer.name}" class="w-5 h-5 rounded-full object-cover border border-slate-300 dark:border-slate-600" />
+                ` : `
+                  <span class="w-5 h-5 rounded-full text-white flex items-center justify-center font-black text-[10px]" style="background-color: ${volunteer.avatarColor}">
+                    ${volunteer.name.charAt(0)}
+                  </span>
+                `}
+                <span class="font-semibold">${volunteer.name}</span>
                 ${volunteer.isAdmin ? `
                   <span class="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px] font-extrabold">ADMIN</span>
                 ` : ''}
-              </div>
+              </button>
             ` : ''}
 
             <!-- Clôturer la séance -->

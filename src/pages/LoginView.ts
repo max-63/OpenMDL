@@ -156,9 +156,13 @@ export class LoginView {
                     }"
                   >
                     <div class="flex items-center gap-2.5 min-w-0">
-                      <div class="w-7 h-7 rounded-xl flex items-center justify-center text-white font-black text-xs flex-shrink-0" style="background-color: ${v.avatarColor}">
-                        ${safeName.charAt(0)}
-                      </div>
+                      ${v.avatarUrl ? `
+                        <img src="${escapeHtml(v.avatarUrl)}" alt="${safeName}" class="w-7 h-7 rounded-xl object-cover border border-slate-300 dark:border-slate-700 flex-shrink-0" />
+                      ` : `
+                        <div class="w-7 h-7 rounded-xl flex items-center justify-center text-white font-black text-xs flex-shrink-0" style="background-color: ${v.avatarColor}">
+                          ${safeName.charAt(0)}
+                        </div>
+                      `}
                       <div class="truncate">
                         <div class="font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors truncate">
                           ${safeName}

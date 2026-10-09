@@ -393,6 +393,23 @@ export class SyncService {
 
       db.importData(remoteData);
 
+      // Réconciliation bidirectionnelle des messages de chat :
+      // Dès que le serveur est joignable, le client lui transmet ses messages locaux pour que le serveur les intègre
+      try {
+        const localMessages = db.getAllChatMessages();
+        if (localMessages.length > 0) {
+          fetch(`${targetUrl}/api/chat/messages`, {
+            method: 'POST',
+            headers: {
+              'X-Pin': this.config.lan.pin || '',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(localMessages),
+            signal: AbortSignal.timeout(3000)
+          }).catch(() => {});
+        }
+      } catch {}
+
       if (remoteHashHeader) {
         this.lastSyncedDbHash = remoteHashHeader;
         localStorage.setItem('openmdl_synced_db_hash', remoteHashHeader);

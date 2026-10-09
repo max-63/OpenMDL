@@ -37,18 +37,25 @@ export class CreditsView {
         <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xs flex flex-col justify-between gap-5 relative overflow-hidden group">
           <div class="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-orange-500/5 blur-xl pointer-events-none"></div>
 
-          <div class="space-y-3">
+          <div class="space-y-4">
             <div class="flex items-center justify-between">
               <span class="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
                 Créateur & Développeur Principal
               </span>
             </div>
 
-            <div>
-              <h2 class="text-xl font-black text-slate-900 dark:text-white tracking-tight">Adrien Courault</h2>
-              <p class="text-xs text-slate-500 dark:text-slate-400 font-medium pt-1 leading-relaxed">
-                Architecte logiciel, conception de l'ensemble du cœur applicatif OpenMDL, de l'interface POS, du moteur d'addons et de l'infrastructure de distribution multiplateforme.
-              </p>
+            <div class="flex items-start gap-4">
+              <img 
+                src="/authors/adrien.jpeg" 
+                alt="Adrien Courault" 
+                class="w-16 h-16 rounded-2xl object-cover border-2 border-orange-500/30 shadow-md flex-shrink-0 select-none"
+              />
+              <div class="flex-1 min-w-0">
+                <h2 class="text-xl font-black text-slate-900 dark:text-white tracking-tight">Adrien Courault</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium pt-1 leading-relaxed">
+                  Architecte logiciel, conception de l'ensemble du cœur applicatif OpenMDL, de l'interface POS, du moteur d'addons et de l'infrastructure de distribution multiplateforme.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -70,18 +77,25 @@ export class CreditsView {
         <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xs flex flex-col justify-between gap-5 relative overflow-hidden group">
           <div class="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-sky-500/5 blur-xl pointer-events-none"></div>
 
-          <div class="space-y-3">
+          <div class="space-y-4">
             <div class="flex items-center justify-between">
               <span class="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
                 Bêta-Testeur Officiel
               </span>
             </div>
 
-            <div>
-              <h2 class="text-xl font-black text-slate-900 dark:text-white tracking-tight">Baly Jérémy</h2>
-              <p class="text-xs text-slate-500 dark:text-slate-400 font-medium pt-1 leading-relaxed">
-                Validation continue en conditions réelles de foyer, retour d'expérience utilisateur sur les flux de caisse, tests de robustesse et vérification des scénarios de permanences bénévoles.
-              </p>
+            <div class="flex items-start gap-4">
+              <img 
+                src="/authors/jeremy.jpg" 
+                alt="Baly Jérémy" 
+                class="w-16 h-16 rounded-2xl object-cover border-2 border-sky-500/30 shadow-md flex-shrink-0 select-none"
+              />
+              <div class="flex-1 min-w-0">
+                <h2 class="text-xl font-black text-slate-900 dark:text-white tracking-tight">Baly Jérémy</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium pt-1 leading-relaxed">
+                  Validation continue en conditions réelles de foyer, retour d'expérience utilisateur sur les flux de caisse, tests de robustesse et vérification des scénarios de permanences bénévoles.
+                </p>
+              </div>
             </div>
           </div>
 

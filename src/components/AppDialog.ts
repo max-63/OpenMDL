@@ -231,4 +231,89 @@ export class AppDialog {
     document.body.appendChild(overlay);
     return close;
   }
+
+  /**
+   * Modale de saisie de texte (remplace prompt())
+   */
+  public static prompt(options: {
+    title: string;
+    message: string;
+    placeholder?: string;
+    defaultValue?: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: (value: string) => void;
+    onCancel?: () => void;
+  }): void {
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-enter';
+
+    overlay.innerHTML = `
+      <div class="w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 flex flex-col gap-4 animate-scale-up">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 flex items-center justify-center font-bold flex-shrink-0">
+            ${Icons.edit('w-5 h-5')}
+          </div>
+          <div>
+            <h3 class="text-sm font-black text-slate-900 dark:text-white tracking-tight">${escapeHtml(options.title)}</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">${escapeHtml(options.message)}</p>
+          </div>
+        </div>
+
+        <input 
+          type="text" 
+          id="dialog-prompt-input"
+          placeholder="${escapeHtml(options.placeholder || '')}"
+          value="${escapeHtml(options.defaultValue || '')}"
+          class="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:border-orange-500 transition-colors"
+        />
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button 
+            type="button" 
+            id="dialog-prompt-cancel"
+            class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+          >
+            ${escapeHtml(options.cancelText || 'Annuler')}
+          </button>
+          <button 
+            type="button" 
+            id="dialog-prompt-confirm"
+            class="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-md shadow-orange-600/20 transition-all cursor-pointer"
+          >
+            ${escapeHtml(options.confirmText || 'Valider')}
+          </button>
+        </div>
+      </div>
+    `;
+
+    const input = overlay.querySelector('#dialog-prompt-input') as HTMLInputElement;
+
+    const close = () => overlay.remove();
+
+    overlay.querySelector('#dialog-prompt-cancel')?.addEventListener('click', () => {
+      close();
+      if (options.onCancel) options.onCancel();
+    });
+
+    const submit = () => {
+      const val = input?.value || '';
+      close();
+      options.onConfirm(val);
+    };
+
+    overlay.querySelector('#dialog-prompt-confirm')?.addEventListener('click', submit);
+    input?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submit();
+      } else if (e.key === 'Escape') {
+        close();
+        if (options.onCancel) options.onCancel();
+      }
+    });
+
+    document.body.appendChild(overlay);
+    setTimeout(() => input?.focus(), 50);
+  }
 }

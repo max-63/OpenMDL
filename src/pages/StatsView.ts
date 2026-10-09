@@ -93,6 +93,7 @@ export class StatsView {
     }
     const currentStockProdId = this.selectedStockProductId || (products[0] ? products[0].id : '');
     const stockEvol = db.getProductStockTimeline(currentStockProdId, this.selectedStockYear, this.selectedStockMonth);
+    const predictionData = db.getMultiProductSalesPrediction(this.selectedStockYear, this.selectedStockMonth);
 
     // 1. En-tête fixe
     const header = document.createElement('div');
@@ -235,12 +236,12 @@ export class StatsView {
 
             <p class="text-[11px] text-slate-400">
               ${!perkEligibility.enabled
-                ? 'La collation bénévole est actuellement désactivée dans les réglages.'
-                : hasClaimedToday 
-                ? 'Conso offerte du jour déjà accordée. Merci pour votre engagement sur cette permanence !'
-                : perkEligibility.allowed 
-                ? 'Seuil atteint ! Vous pouvez choisir et déclarer votre boisson ou snack offert ci-contre :' 
-                : perkEligibility.reason || 'Objectif non atteint.'}
+        ? 'La collation bénévole est actuellement désactivée dans les réglages.'
+        : hasClaimedToday
+          ? 'Conso offerte du jour déjà accordée. Merci pour votre engagement sur cette permanence !'
+          : perkEligibility.allowed
+            ? 'Seuil atteint ! Vous pouvez choisir et déclarer votre boisson ou snack offert ci-contre :'
+            : perkEligibility.reason || 'Objectif non atteint.'}
             </p>
           </div>
 
@@ -332,35 +333,30 @@ export class StatsView {
         </div>
       </div>
 
-      <!-- LIGNE 4 : ÉVOLUTION LINÉAIRE DES STOCKS DU PRODUIT (SÉLECTEUR DÉROULANT, ANNEE/MOIS) & CE MOIS-CI (DOUGHNUT) -->
+      <!-- LIGNE 4 : ÉVOLUTION LINÉAIRE DES STOCKS DU PRODUIT (8 COLS) & RÉPARTITION DES VENTES PAR PRODUIT (4 COLS) -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
         
-        <!-- Graphique Linéaire : Évolution des stocks du produit sélectionné -->
+        <!-- Graphique Linéaire & Prédictif : Ventes Tous Produits + Projection Météo/Cohortes + Barres Restocks (8 colonnes, À GAUCHE) -->
         <div class="lg:col-span-8 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-4 flex flex-col justify-between shadow-xs">
           
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
             <div>
-              <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                ${Icons.lineChart('w-4 h-4 text-orange-500')}
-                <span>Évolution des Stocks & Planification Restock</span>
-              </h3>
-              <p class="text-[11px] text-slate-500 dark:text-slate-400">
-                Suivi chronologique des ventes (descentes) et des restocks (montées) pour anticiper les ruptures
+              <div class="flex items-center gap-2">
+                <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  ${Icons.trendingUp ? Icons.trendingUp('w-4 h-4 text-orange-500') : Icons.lineChart('w-4 h-4 text-orange-500')}
+                  <span>Prédictions Ventes Multi-Produits & Restocks</span>
+                </h3>
+                <span class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  Modèle Dynamique IA
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Tous les produits réunis • Barres vertes = livraisons restock • Lignes continues = réel • Pointillés = prévision fin de mois/année
               </p>
             </div>
 
-            <!-- Filtres : Sélection Produit, Année, Mois -->
+            <!-- Filtres : Sélection Année & Mois -->
             <div class="flex items-center gap-2 flex-wrap">
-              
-              <!-- Liste déroulante des produits -->
-              <select id="select-stock-product" class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500/30 cursor-pointer">
-                ${products.length === 0 ? '<option value="">(Aucun produit au catalogue)</option>' : products.map(p => `
-                  <option value="${p.id}" ${p.id === currentStockProdId ? 'selected' : ''}>
-                    ${p.name} (Stock: ${p.stock} u)
-                  </option>
-                `).join('')}
-              </select>
-
               <!-- Sélecteur Année -->
               <select id="select-stock-year" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none font-mono cursor-pointer">
                 <option value="${currentYear}" ${this.selectedStockYear === currentYear ? 'selected' : ''}>${currentYear}</option>
@@ -372,97 +368,159 @@ export class StatsView {
                 <option value="all" ${this.selectedStockMonth === 'all' ? 'selected' : ''}>Année entière</option>
                 ${monthNames.map((name, idx) => `
                   <option value="${idx}" ${this.selectedStockMonth === idx ? 'selected' : ''}>
-                    ${name} (vue/jour)
+                    ${name} (projection/jour)
                   </option>
                 `).join('')}
               </select>
             </div>
           </div>
 
-          <!-- Canvas du graphique linéaire -->
-          <div class="relative w-full h-64 sm:h-72">
-            <canvas id="stock-evolution-chart"></canvas>
+          <!-- Canvas du graphique multi-produits avec barres de restock -->
+          <div class="relative w-full h-72 sm:h-80">
+            <canvas id="multi-product-prediction-chart"></canvas>
           </div>
 
-          <!-- Diagnostic Restock Intelligent -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200/70 dark:border-slate-800 font-mono-nums text-xs">
+          <!-- Cartouche des facteurs intelligents : Météo, Cohorte (3 classes entrantes/sortantes) & Prévision totale -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200/70 dark:border-slate-800 text-xs">
             <div>
-              <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Stock Actuel</span>
-              <span class="font-black ${stockEvol.summary.urgentStatus === 'urgent' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'} text-sm">
-                ${stockEvol.summary.currentStock} unités
+              <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Projection Fin de Mois</span>
+              <span class="font-black text-orange-600 dark:text-orange-400 text-sm font-mono-nums">
+                ~${predictionData.totalForecastThisMonth} articles prévus
               </span>
             </div>
             <div>
-              <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Vitesse Ventes</span>
-              <span class="font-bold text-slate-700 dark:text-slate-300">
-                ${stockEvol.summary.dailyVelocity} u/j (${stockEvol.summary.totalSold} vendues)
+              <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Facteur Météo & Saison</span>
+              <span class="font-medium text-slate-700 dark:text-slate-300 text-[11px] block leading-tight">
+                ${predictionData.weatherFactorSummary}
               </span>
             </div>
             <div>
-              <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Autonomie Estimée</span>
-              <span class="font-black ${stockEvol.summary.daysUntilOut !== null && stockEvol.summary.daysUntilOut <= 5 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}">
-                ${stockEvol.summary.daysUntilOut !== null ? `${stockEvol.summary.daysUntilOut} jours` : '0 vente / Réappro'}
-              </span>
-            </div>
-            <div>
-              <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Restock Recommandé</span>
-              <span class="font-extrabold text-orange-600 dark:text-orange-400">
-                +${stockEvol.summary.recommendedRestockQty} unités
+              <span class="text-[10px] text-slate-400 font-sans font-bold uppercase block">Facteur Rotation Lycée</span>
+              <span class="font-medium text-slate-700 dark:text-slate-300 text-[11px] block leading-tight">
+                ${predictionData.turnoverFactorSummary}
               </span>
             </div>
           </div>
 
         </div>
 
-        <!-- Graphique Circulaire : Ce mois-ci : Bénévoles, Coûts et Marges -->
+        <!-- Graphique Circulaire : Répartition des Ventes par Produit & Catégorie (4 colonnes, À DROITE) -->
         <div class="lg:col-span-4 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-3 flex flex-col justify-between shadow-xs">
           <div>
-            <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
-              ${Icons.pieChart('w-4 h-4 text-orange-500')}
-              <span>Ce Mois-ci : Bénévoles, Coûts & Marges</span>
-            </h3>
-            <p class="text-[11px] text-slate-500 dark:text-slate-400">Répartition financière du mois en cours (${monthNames[now.getMonth()]})</p>
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                ${Icons.pieChart('w-4 h-4 text-orange-500')}
+                <span>Ventes par Produit & Famille</span>
+              </h3>
+              <span class="text-[11px] font-mono-nums font-bold px-2 py-0.5 rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400">
+                ${sales.reduce((sum, s) => sum + s.items.reduce((acc, it) => acc + it.quantity, 0), 0)} vendus
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Survol famille : révèle ses articles (hauteur polaire selon la marge) • Clic centre : tout afficher
+            </p>
           </div>
 
-          <div class="relative w-full h-64 sm:h-72 flex items-center justify-center">
-            <canvas id="monthly-financials-doughnut"></canvas>
+          <div class="relative w-full h-56 sm:h-64 flex items-center justify-center">
+            <canvas id="top-products-chart"></canvas>
+          </div>
+
+          <!-- Légende interactive des familles et code couleur -->
+          <div class="pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+              Légende des Familles (Anneau int. / Articles ext.) :
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-[11px] font-sans">
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <span class="w-2.5 h-2.5 rounded-full bg-[#0284c7]"></span>
+                <span class="font-medium">Boissons</span>
+              </span>
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <span class="w-2.5 h-2.5 rounded-full bg-[#ea580c]"></span>
+                <span class="font-medium">Snacks</span>
+              </span>
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <span class="w-2.5 h-2.5 rounded-full bg-[#db2777]"></span>
+                <span class="font-medium">Bonbons</span>
+              </span>
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <span class="w-2.5 h-2.5 rounded-full bg-[#7c3aed]"></span>
+                <span class="font-medium">Chaud</span>
+              </span>
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <span class="w-2.5 h-2.5 rounded-full bg-[#059669]"></span>
+                <span class="font-medium">Divers</span>
+              </span>
+            </div>
           </div>
         </div>
 
       </div>
 
-      <!-- LIGNE 5 : PRIORITÉS DE RÉAPPROVISIONNEMENT EN CARTES ARRONDIES -->
-      <div class="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            ${Icons.alertTriangle('w-4 h-4 text-amber-500')}
-            <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Priorités de réapprovisionnement</h3>
+      <!-- LIGNE 5 : CE MOIS-CI (COÛTS, MARGES & BÉNÉVOLES) & PRIORITÉS DE RÉAPPROVISIONNEMENT SUR LA MÊME LIGNE -->
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        
+        <!-- Ce Mois-ci : Bénévoles, Coûts et Marges (7 cols, À GAUCHE) -->
+        <div class="xl:col-span-7 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-xs flex flex-col justify-between">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div>
+              <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                ${Icons.pieChart('w-4 h-4 text-orange-500')}
+                <span>Ce Mois-ci : Bénévoles, Coûts & Marges</span>
+              </h3>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                Répartition financière détaillée du mois en cours (${monthNames[now.getMonth()]})
+              </p>
+            </div>
           </div>
-          <span class="text-xs font-mono-nums font-bold text-slate-400">${products.filter(p => p.stock <= p.minStockAlert).length} alertes urgentes</span>
+
+          <div class="relative w-full h-72 sm:h-80 flex items-center justify-center">
+            <canvas id="monthly-financials-doughnut"></canvas>
+          </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono-nums text-xs">
-          ${products.filter(p => p.stock <= p.minStockAlert).length === 0 ? `
-            <div class="col-span-full py-8 text-center text-xs text-slate-400 font-sans">
-              Tous les stocks sont au-dessus des seuils de sécurité.
-            </div>
-          ` : products.filter(p => p.stock <= p.minStockAlert).map(p => {
-            const isOut = p.stock <= 0;
-            return `
-              <div class="p-3.5 rounded-xl bg-white dark:bg-slate-900 border ${isOut ? 'border-rose-300 dark:border-rose-900/60' : 'border-amber-200 dark:border-amber-900/60'} shadow-xs flex items-center justify-between">
-                <div>
-                  <div class="font-sans font-bold text-slate-900 dark:text-slate-100">${p.name}</div>
-                  <div class="text-[11px] text-slate-400">Seuil: ${p.minStockAlert} u</div>
-                </div>
-                <div class="text-right">
-                  <span class="px-2 py-0.5 rounded-full text-xs font-black ${isOut ? 'bg-rose-500/15 text-rose-600' : 'bg-amber-500/15 text-amber-600'}">
-                    ${p.stock} u
-                  </span>
-                </div>
+        <!-- Priorités de réapprovisionnement (5 cols) -->
+        <div class="xl:col-span-5 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-xs flex flex-col justify-between">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div class="flex items-center gap-2">
+              ${Icons.alertTriangle('w-4 h-4 text-amber-500')}
+              <div>
+                <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Priorités Réapprovisionnement</h3>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">Articles sous le seuil d'alerte</p>
               </div>
-            `;
-          }).join('')}
+            </div>
+            <span class="text-xs font-mono-nums font-bold px-2.5 py-1 rounded-xl ${products.filter(p => p.stock <= p.minStockAlert).length > 0
+        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+        : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+      }">
+              ${products.filter(p => p.stock <= p.minStockAlert).length} alertes
+            </span>
+          </div>
+
+          <div class="flex-1 overflow-y-auto max-h-72 sm:max-h-80 space-y-2.5 font-mono-nums text-xs pr-1">
+            ${products.filter(p => p.stock <= p.minStockAlert).length === 0 ? `
+              <div class="py-16 text-center text-xs text-slate-400 font-sans">
+                Tous les stocks sont au-dessus des seuils de sécurité.
+              </div>
+            ` : products.filter(p => p.stock <= p.minStockAlert).map(p => {
+        const isOut = p.stock <= 0;
+        return `
+                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border ${isOut ? 'border-rose-300 dark:border-rose-900/60' : 'border-amber-200 dark:border-amber-900/60'} shadow-xs flex items-center justify-between">
+                  <div>
+                    <div class="font-sans font-bold text-slate-900 dark:text-slate-100">${p.name}</div>
+                    <div class="text-[11px] text-slate-400 font-sans">Seuil d'alerte : ${p.minStockAlert} u</div>
+                  </div>
+                  <div class="text-right">
+                    <span class="px-2.5 py-1 rounded-lg text-xs font-black ${isOut ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'}">
+                      ${p.stock} u
+                    </span>
+                  </div>
+                </div>
+              `;
+      }).join('')}
+          </div>
         </div>
+
       </div>
 
       <!-- LIGNE 6 : DERNIÈRES TRANSACTIONS & CAHIER DE TRANSMISSION -->
@@ -482,10 +540,10 @@ export class StatsView {
             ${sessions.length === 0 ? `
               <p class="text-xs text-slate-400 py-6 text-center font-sans">Aucune séance clôturée pour le moment.</p>
             ` : sessions.map(sess => {
-              const startFormatted = new Date(sess.startTime).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
-              const hasNotes = sess.incidentNotes && sess.incidentNotes.trim().length > 0;
+        const startFormatted = new Date(sess.startTime).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+        const hasNotes = sess.incidentNotes && sess.incidentNotes.trim().length > 0;
 
-              return `
+        return `
                 <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200/70 dark:border-slate-800 space-y-1.5">
                   <div class="flex items-center justify-between font-sans">
                     <span class="font-bold text-slate-900 dark:text-slate-100">${sess.volunteerName} <span class="text-slate-400 text-[11px] font-normal">• ${startFormatted}</span></span>
@@ -494,7 +552,7 @@ export class StatsView {
                   <p class="text-[11px] font-sans text-slate-500 whitespace-pre-line">${hasNotes ? sess.incidentNotes : 'Permanence sans incident particulier (R.A.S.)'}</p>
                 </div>
               `;
-            }).join('')}
+      }).join('')}
           </div>
         </div>
 
@@ -525,11 +583,10 @@ export class StatsView {
                     <td class="py-2 px-3 text-slate-500 text-[11px]">${new Date(s.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</td>
                     <td class="py-2 px-3 font-sans text-slate-800 dark:text-slate-200 font-semibold">${s.volunteerName.split(' ')[0]}</td>
                     <td class="py-2 px-3">
-                      <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                        s.paymentMethod === 'especes' 
-                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' 
-                          : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
-                      }">
+                      <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${s.paymentMethod === 'especes'
+          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+        }">
                         ${s.paymentMethod}
                       </span>
                     </td>
@@ -559,10 +616,10 @@ export class StatsView {
         AnalyticsCharts.createYearlyMonthlyStackedBarChart(barCanvas, sales, perks, products, isDark);
       }
 
-      // 2. Line Chart : Évolution dynamique des stocks du produit sélectionné
-      const lineCanvas = scrollBody.querySelector('#stock-evolution-chart') as HTMLCanvasElement;
-      if (lineCanvas) {
-        AnalyticsCharts.createProductStockEvolutionChart(lineCanvas, stockEvol, isDark);
+      // 2. Combo Chart : Prédiction des ventes multi-produits (tous les articles) + barres restock
+      const multiPredictionCanvas = scrollBody.querySelector('#multi-product-prediction-chart') as HTMLCanvasElement;
+      if (multiPredictionCanvas) {
+        AnalyticsCharts.createMultiProductPredictionChart(multiPredictionCanvas, predictionData, isDark);
       }
 
       // 3. Doughnut Chart : Ce mois-ci (Coûts d'achat vs Marge vs Bénévoles)
@@ -570,14 +627,15 @@ export class StatsView {
       if (doughnutCanvas) {
         AnalyticsCharts.createMonthlyFinancialsDoughnutChart(doughnutCanvas, sales, perks, products, isDark);
       }
+
+      // 4. Doughnut / Camembert Chart : Produits les plus vendus (Top articles)
+      const topProductsCanvas = scrollBody.querySelector('#top-products-chart') as HTMLCanvasElement;
+      if (topProductsCanvas) {
+        AnalyticsCharts.createTopProductsPieChart(topProductsCanvas, sales, products, isDark);
+      }
     });
 
     // Événements
-    scrollBody.querySelector('#select-stock-product')?.addEventListener('change', (e) => {
-      this.selectedStockProductId = (e.target as HTMLSelectElement).value;
-      this.renderContent(container);
-    });
-
     scrollBody.querySelector('#select-stock-year')?.addEventListener('change', (e) => {
       this.selectedStockYear = parseInt((e.target as HTMLSelectElement).value, 10);
       this.renderContent(container);

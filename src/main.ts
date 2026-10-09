@@ -15,6 +15,8 @@ import { PlanningView } from './pages/PlanningView';
 import { AddonsView } from './pages/AddonsView';
 import { CreditsView } from './pages/CreditsView';
 import { DecaisseView } from './pages/DecaisseView';
+import { ChatView } from './pages/ChatView';
+import { ProfileView } from './pages/ProfileView';
 import { SnakeModalComponent } from './components/SnakeModal';
 import { syncService } from './services/syncService';
 import { AppDialog } from './components/AppDialog';
@@ -24,6 +26,7 @@ class App {
   private appRoot: HTMLElement;
   private currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
   private cart: CartComponent;
+  private activeChatView: ChatView | null = null;
 
   constructor() {
     const root = document.getElementById('app');
@@ -47,7 +50,14 @@ class App {
 
     // Écouter les changements de la base de données
     db.subscribe(() => {
-      this.render();
+      // Si l'utilisateur est sur le chat, ne PAS détruire et recharger toute la page
+      // Mettre à jour uniquement les badges du header et laisser ChatView actualiser son flux de messages en douceur
+      if (this.currentTab === 'chat' && this.activeChatView) {
+        this.updateHeaderChatBadge();
+        this.activeChatView.refreshMessages();
+      } else {
+        this.render();
+      }
     });
 
     // Écouter les changements du gestionnaire d'addons
@@ -249,7 +259,7 @@ class App {
       }
       case 'settings': {
         if (currentVolunteer.isAdmin || db.getAppProfile() === 'visco') {
-          const settings = new SettingsView();
+          const settings = new SettingsView(() => this.render());
           pageContainer.appendChild(settings.render());
         } else {
           this.currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
@@ -262,7 +272,19 @@ class App {
         pageContainer.appendChild(credits.render());
         break;
       }
+      case 'chat': {
+        this.activeChatView = new ChatView();
+        pageContainer.appendChild(this.activeChatView.render());
+        break;
+      }
+      case 'profile': {
+        this.activeChatView = null;
+        const profileView = new ProfileView(() => this.render());
+        pageContainer.appendChild(profileView.render());
+        break;
+      }
       default: {
+        this.activeChatView = null;
         // Vérifier si un onglet d'addon dynamique actif correspond
         const registeredTab = addonManager.getRegisteredTabs().find(t => t.id === this.currentTab);
         if (registeredTab) {
@@ -286,7 +308,33 @@ class App {
 
     this.appRoot.appendChild(pageContainer);
   }
+
+  private updateHeaderChatBadge(): void {
+    if (!db.getChatSettings().enabled) return;
+    const unread = db.getUnreadDirectMessagesCount();
+    const dot = document.getElementById('chat-badge-dot');
+    const count = document.getElementById('chat-badge-count');
+    if (dot) {
+      if (unread > 0) dot.classList.remove('hidden');
+      else dot.classList.add('hidden');
+    }
+    if (count) {
+      if (unread > 0) {
+        count.textContent = String(unread);
+        count.classList.remove('hidden');
+      } else {
+        count.classList.add('hidden');
+      }
+    }
+  }
 }
 
-// Démarrage de l'application
-new App();
+// Démarrage de l'application avec persistance native SQLite
+(async () => {
+  try {
+    await db.initSqlitePersistence();
+  } catch (err) {
+    console.warn('Initialisation SQLite Tauri :', err);
+  }
+  new App();
+})();

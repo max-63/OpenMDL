@@ -189,53 +189,6 @@ export class TpeView {
               </div>
             </div>
 
-            <!-- Banc d'essai interactif -->
-            <div class="w-full pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
-              <div class="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
-                <span>Banc de test en direct</span>
-                <span class="text-[11px] text-slate-400 font-normal">Validation du son et flux</span>
-              </div>
-
-              <div class="flex items-center gap-2">
-                <div class="relative flex-1">
-                  <input 
-                    type="number" 
-                    id="input-tpe-test-amount" 
-                    step="0.50" 
-                    min="0.50" 
-                    value="${this.testAmount.toFixed(2)}"
-                    class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-900 dark:text-white"
-                  />
-                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">€</span>
-                </div>
-
-                <button 
-                  id="btn-trigger-tpe-test"
-                  class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
-                >
-                  Envoyer au TPE
-                </button>
-              </div>
-
-              ${this.testState === 'waiting_card' ? `
-                <div class="pt-1 flex gap-2">
-                  <button 
-                    id="btn-simulate-tap-card"
-                    class="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm shadow-emerald-600/20 active:scale-98 transition-all animate-pulse cursor-pointer"
-                  >
-                    ${Icons.zap('w-4 h-4')}
-                    <span>Badger la carte (Validation)</span>
-                  </button>
-                  <button 
-                    id="btn-reset-tpe-test"
-                    class="px-3 py-2.5 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 font-bold text-xs"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              ` : ''}
-            </div>
-
           </div>
         </div>
 
@@ -732,49 +685,6 @@ export class TpeView {
       this.showConnectModal = false;
       this.renderContent(container);
       this.onStateChange();
-    });
-
-    // Saisie montant de test
-    const testAmountInput = container.querySelector('#input-tpe-test-amount') as HTMLInputElement;
-    testAmountInput?.addEventListener('input', () => {
-      const val = parseFloat(testAmountInput.value);
-      if (!isNaN(val) && val > 0) {
-        this.testAmount = val;
-      }
-    });
-
-    // Déclencher le test TPE
-    container.querySelector('#btn-trigger-tpe-test')?.addEventListener('click', () => {
-      this.testState = 'waiting_card';
-      this.renderContent(container);
-    });
-
-    // Simuler le passage de carte
-    container.querySelector('#btn-simulate-tap-card')?.addEventListener('click', () => {
-      this.testState = 'processing';
-      this.renderContent(container);
-
-      setTimeout(() => {
-        this.testState = 'approved';
-        db.recordTpePayment({
-          amount: this.testAmount,
-          cardBrand: 'Apple Pay (Mastercard)',
-          last4: '7712',
-          status: 'SUCCESS'
-        });
-        this.renderContent(container);
-
-        setTimeout(() => {
-          this.testState = 'idle';
-          this.renderContent(container);
-        }, 2500);
-      }, 1000);
-    });
-
-    // Réinitialiser le test
-    container.querySelector('#btn-reset-tpe-test')?.addEventListener('click', () => {
-      this.testState = 'idle';
-      this.renderContent(container);
     });
   }
 }

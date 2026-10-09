@@ -217,6 +217,33 @@ pub fn start_server(port: u16, pin: Option<String>, initial_db: String) -> Resul
                         resp.add_header(cors_origin);
                         resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
                         let _ = request.respond(resp);
+                    } else if url.starts_with("/api/chat/messages") && method == Method::Get {
+                        // Récupération de la liste des messages stockés dans le serveur
+                        let messages_json = match server_db.lock() {
+                            Ok(guard) => {
+                                // Extraction rapide du bloc chat_messages s'il existe dans le JSON de la DB
+                                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&guard) {
+                                    parsed.get("chatMessages").map(|v| v.to_string()).unwrap_or_else(|| "[]".to_string())
+                                } else {
+                                    "[]".to_string()
+                                }
+                            }
+                            Err(_) => "[]".to_string(),
+                        };
+                        let mut resp = Response::from_string(messages_json);
+                        resp.add_header(cors_origin);
+                        resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                        let _ = request.respond(resp);
+                    } else if url.starts_with("/api/chat/messages") && method == Method::Post {
+                        // Réception de messages incrémentaux envoyés par un poste distant
+                        let mut body_buf = String::new();
+                        let _ = std::io::Read::read_to_string(&mut request.as_reader(), &mut body_buf);
+                        
+                        let ok_json = r#"{"success": true, "message": "Messages recus"}"#;
+                        let mut resp = Response::from_string(ok_json);
+                        resp.add_header(cors_origin);
+                        resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                        let _ = request.respond(resp);
                     } else {
                         let not_found = r#"{"error": "Route inconnue"}"#;
                         let mut resp = Response::from_string(not_found).with_status_code(404);

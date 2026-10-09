@@ -343,8 +343,8 @@ export class CatalogView {
               <!-- Aperçu de la photo -->
               <div id="image-preview-wrapper" class="${product?.imageUrl ? '' : 'hidden'} relative w-24 h-24 rounded-2xl overflow-hidden shadow-xs border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
                 <img id="image-preview-img" src="${product?.imageUrl || ''}" alt="Aperçu" class="w-full h-full object-cover" />
-                <button type="button" id="btn-remove-photo" title="Supprimer la photo" class="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-black shadow-xs transition-transform hover:scale-110">
-                  ✕
+                <button type="button" id="btn-remove-photo" title="Supprimer la photo" class="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-xs transition-transform hover:scale-110">
+                  ${Icons.x('w-3 h-3')}
                 </button>
               </div>
 

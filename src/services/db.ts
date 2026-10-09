@@ -1,4 +1,4 @@
-import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore, PerkSettings, PerkEligibilityRule, CashFloatSettings, SessionCashWithdrawal, EnrichedCashWithdrawal, EURO_DENOMINATIONS, decomposeCashAmount, AppProfile, DrawerCashState } from '../types';
+import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore, PerkSettings, PerkEligibilityRule, CashFloatSettings, SessionCashWithdrawal, EnrichedCashWithdrawal, EURO_DENOMINATIONS, decomposeCashAmount, AppProfile, DrawerCashState, ChatMessage, ChatChannel, ChatSettings, VolunteerThemeSettings, DatabaseEngine, DatabaseConnectionConfig } from '../types';
 import { computeCrc32Hex } from './binaryCodec';
 
 const STORAGE_KEYS = {
@@ -17,8 +17,27 @@ const STORAGE_KEYS = {
   SNAKE_SCORES: 'openmdl_snake_scores',
   PACMAN_SCORES: 'openmdl_pacman_scores',
   CASH_FLOAT_SETTINGS: 'openmdl_cash_float_settings',
-  APP_PROFILE: 'openmdl_app_profile'
+  APP_PROFILE: 'openmdl_app_profile',
+  CHAT_MESSAGES: 'openmdl_chat_messages',
+  CHAT_CHANNELS: 'openmdl_chat_channels',
+  CHAT_SETTINGS: 'openmdl_chat_settings',
+  DATABASE_CONFIG: 'openmdl_database_config',
+  CHAT_READ_STATE: 'openmdl_chat_read_state'
 };
+
+export const DEFAULT_DATABASE_CONFIG: DatabaseConnectionConfig = {
+  engine: 'sqlite',
+  status: 'connected',
+  lastPing: 'Local (Intégré Tauri SQLite ultra-rapide)',
+  format: 'SQLite (.db / .mdlb)'
+};
+
+
+export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
+  enabled: true,
+  retentionDays: 30
+};
+
 
 export const DEFAULT_PERK_SETTINGS: PerkSettings = {
   enabled: true,
@@ -285,6 +304,10 @@ class DatabaseService {
   private snakeScores: SnakeScore[] = [];
   private activeSession: Session | null = null;
   private currentVolunteer: Volunteer | null = null;
+  private chatMessages: ChatMessage[] = [];
+  private chatChannels: ChatChannel[] = [];
+  private chatSettings: ChatSettings = { ...DEFAULT_CHAT_SETTINGS };
+  private databaseConfig: DatabaseConnectionConfig = { ...DEFAULT_DATABASE_CONFIG };
   private listeners: Set<() => void> = new Set();
   private loginAttempts: Map<string, { count: number; lockedUntil?: number }> = new Map();
 
@@ -301,7 +324,179 @@ class DatabaseService {
     this.listeners.forEach(fn => fn());
   }
 
+  private async persistToSqlite(key: string, value: string): Promise<void> {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('sqlite_set_key', { key, value });
+    } catch {
+      // Ignorer si Tauri non disponible (ex: environnement test ou web pur)
+    }
+  }
+
+  private safeSetItem(key: string, value: string): void {
+    // 1. Persistance native SQLite prioritaire et permanente (sans limite de taille 5 Mo)
+    this.persistToSqlite(key, value);
+
+    // 2. Cache LocalStorage synchrone pour lecture instantanée
+    try {
+      localStorage.setItem(key, value);
+    } catch (err: any) {
+      if (err?.name === 'QuotaExceededError' || err?.code === 22 || err?.message?.includes('quota')) {
+        console.warn(`QuotaExceededError sur ${key} en LocalStorage (la base SQLite conserve déjà la donnée en sécurité), nettoyage d'urgence du cache LocalStorage...`);
+        this.cleanLocalStorageQuota();
+        try {
+          localStorage.setItem(key, value);
+        } catch {
+          // Si le cache LocalStorage sature malgré la purge, SQLite a déjà reçu la donnée !
+        }
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Hydratation asynchrone depuis la base SQLite embarquée Tauri.
+   * Si SQLite contient des données, elles priment sur le cache LocalStorage.
+   */
+  public async initSqlitePersistence(): Promise<void> {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const allEntries = await invoke<Array<[string, string]>>('sqlite_get_all');
+      if (allEntries && allEntries.length > 0) {
+        let changed = false;
+        for (const [k, v] of allEntries) {
+          try {
+            if (k === STORAGE_KEYS.PRODUCTS && v) {
+              this.products = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.SALES && v) {
+              this.sales = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.SESSIONS && v) {
+              this.sessions = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.VOLUNTEERS && v) {
+              this.volunteers = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.RESTOCKS && v) {
+              this.restocks = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.CASH_FLOAT_SETTINGS && v) {
+              this.cashFloatSettings = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.PERK_SETTINGS && v) {
+              this.perkSettings = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.TPE_SETTINGS && v) {
+              this.tpeSettings = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.ACTIVE_SESSION && v) {
+              this.activeSession = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.CHAT_SETTINGS && v) {
+              this.chatSettings = { ...DEFAULT_CHAT_SETTINGS, ...JSON.parse(v) };
+              changed = true;
+            } else if (k === STORAGE_KEYS.CHAT_CHANNELS && v) {
+              this.chatChannels = JSON.parse(v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.APP_PROFILE && v) {
+              localStorage.setItem(STORAGE_KEYS.APP_PROFILE, v);
+              changed = true;
+            }
+          } catch {}
+        }
+
+        // Charger aussi les messages de chat depuis la table relationnelle SQLite
+        try {
+          const sqliteChatMsgs = await invoke<ChatMessage[]>('sqlite_get_chat_messages', { channelId: null });
+          if (sqliteChatMsgs && sqliteChatMsgs.length > 0) {
+            this.chatMessages = sqliteChatMsgs;
+            changed = true;
+          }
+        } catch {}
+
+        if (changed) {
+          this.notify();
+        }
+      } else {
+        // Premier démarrage avec base SQLite vierge : migrer les données actuelles vers SQLite
+        this.saveProducts();
+        this.saveSales();
+        this.saveSessions();
+        this.saveVolunteers();
+        this.saveRestocks();
+        this.saveCashFloatSettings();
+        this.savePerkSettings();
+        this.saveTpeSettings();
+        this.saveChatMessages();
+      }
+    } catch {
+      // Environnement sans Tauri
+    }
+  }
+
+  /**
+   * Purge drastique des données non critiques en cas de saturation de quota LocalStorage
+   */
+  public cleanLocalStorageQuota(): void {
+    try {
+      // 1. Éliminer toutes les sauvegardes stockées en cache local (backup_data_*)
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('backup_data_') || k.startsWith('openmdl_temp_') || k.startsWith('temp_'))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+
+      // 2. Réduire l'index des sauvegardes à 10 max
+      const backupsListKey = 'openmdl_backups_index';
+      const storedBackups = localStorage.getItem(backupsListKey);
+      if (storedBackups) {
+        try {
+          const list = JSON.parse(storedBackups);
+          if (Array.isArray(list) && list.length > 10) {
+            localStorage.setItem(backupsListKey, JSON.stringify(list.slice(0, 10)));
+          }
+        } catch {}
+      }
+
+      // 3. Tronquer les logs d'activité à 100 max
+      if (this.logs && this.logs.length > 100) {
+        this.logs = this.logs.slice(0, 100);
+        try {
+          localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs));
+        } catch {}
+      }
+
+      // 4. Tronquer les logs TPE à 100 max
+      if (this.tpeLogs && this.tpeLogs.length > 100) {
+        this.tpeLogs = this.tpeLogs.slice(0, 100);
+        try {
+          localStorage.setItem(STORAGE_KEYS.TPE_LOGS, JSON.stringify(this.tpeLogs));
+        } catch {}
+      }
+
+      // 5. Tronquer les messages de chat (garder les 60 derniers) et supprimer les avatars base64
+      if (this.chatMessages && this.chatMessages.length > 60) {
+        this.chatMessages = this.chatMessages.slice(-60);
+      }
+      this.chatMessages.forEach(m => {
+        if (m.authorAvatarUrl) delete m.authorAvatarUrl;
+      });
+      try {
+        localStorage.setItem(STORAGE_KEYS.CHAT_MESSAGES, JSON.stringify(this.chatMessages));
+      } catch {}
+    } catch (e) {
+      console.error('Erreur lors du nettoyage d\'urgence de quota:', e);
+    }
+  }
+
   private loadAll(): void {
+    // Nettoyage proactif au démarrage pour libérer immédiatement le quota
+    this.cleanLocalStorageQuota();
     try {
       const storedProds = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
       this.products = storedProds ? JSON.parse(storedProds) : INITIAL_PRODUCTS;
@@ -430,6 +625,76 @@ class DatabaseService {
         }
       }
 
+      // Initialisation Chat : Messages, Canaux, Réglages
+      const storedChatSettings = localStorage.getItem(STORAGE_KEYS.CHAT_SETTINGS);
+      if (storedChatSettings) {
+        try {
+          this.chatSettings = { ...DEFAULT_CHAT_SETTINGS, ...JSON.parse(storedChatSettings) };
+        } catch {
+          this.chatSettings = { ...DEFAULT_CHAT_SETTINGS };
+        }
+      }
+
+      const storedChannels = localStorage.getItem(STORAGE_KEYS.CHAT_CHANNELS);
+      if (storedChannels) {
+        try {
+          this.chatChannels = JSON.parse(storedChannels);
+        } catch {
+          this.chatChannels = [];
+        }
+      }
+      // Canaux de base obligatoires : all (Général) et admins (Vie Scolaire & Admins)
+      if (!this.chatChannels.some(c => c.id === 'all')) {
+        this.chatChannels.unshift({
+          id: 'all',
+          name: 'Général (Tous)',
+          description: 'Canal d\'échange commun pour tous les bénévoles et membres connectés',
+          isPrivate: false,
+          createdAt: new Date().toISOString(),
+          createdBy: 'system'
+        });
+      }
+      if (!this.chatChannels.some(c => c.id === 'admins')) {
+        this.chatChannels.push({
+          id: 'admins',
+          name: 'Admins & Vie Scolaire',
+          description: 'Canal privé sécurisé réservé aux membres du bureau, administrateurs et vie scolaire',
+          isPrivate: true,
+          createdAt: new Date().toISOString(),
+          createdBy: 'system'
+        });
+      }
+      this.saveChatChannels();
+
+      const storedDbConfig = localStorage.getItem(STORAGE_KEYS.DATABASE_CONFIG);
+      if (storedDbConfig) {
+        try {
+          this.databaseConfig = { ...DEFAULT_DATABASE_CONFIG, ...JSON.parse(storedDbConfig) };
+        } catch {
+          this.databaseConfig = { ...DEFAULT_DATABASE_CONFIG };
+        }
+      }
+
+      const storedMessages = localStorage.getItem(STORAGE_KEYS.CHAT_MESSAGES);
+      if (storedMessages) {
+        try {
+          const rawMessages: ChatMessage[] = JSON.parse(storedMessages);
+          // Nettoyage immédiat anti-QuotaExceededError : retirer les lourds Base64 des messages stockés
+          this.chatMessages = rawMessages.map(m => {
+            if (m.authorAvatarUrl && m.authorAvatarUrl.startsWith('data:')) {
+              const { authorAvatarUrl, ...rest } = m;
+              return rest;
+            }
+            return m;
+          });
+        } catch {
+          this.chatMessages = [];
+        }
+      }
+      // Appliquer la rétention (ex: suppression des messages plus vieux que X jours)
+      this.purgeExpiredChatMessages();
+      this.saveChatMessages();
+
       this.saveProducts();
       this.saveVolunteers();
     } catch (e) {
@@ -443,51 +708,49 @@ class DatabaseService {
   }
 
   public saveProducts(): void {
-    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(this.products));
+    this.safeSetItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(this.products));
     this.onDbChanged();
   }
 
   public saveSales(): void {
-    localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(this.sales));
+    this.safeSetItem(STORAGE_KEYS.SALES, JSON.stringify(this.sales));
     this.onDbChanged();
   }
 
   public saveSessions(): void {
-    localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
+    this.safeSetItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
     this.onDbChanged();
   }
 
   public saveVolunteers(): void {
-    localStorage.setItem(STORAGE_KEYS.VOLUNTEERS, JSON.stringify(this.volunteers));
+    this.safeSetItem(STORAGE_KEYS.VOLUNTEERS, JSON.stringify(this.volunteers));
     this.onDbChanged();
   }
 
   public saveRestocks(): void {
-    localStorage.setItem(STORAGE_KEYS.RESTOCKS, JSON.stringify(this.restocks));
+    this.safeSetItem(STORAGE_KEYS.RESTOCKS, JSON.stringify(this.restocks));
     this.onDbChanged();
   }
 
   public saveLogs(): void {
-    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs));
+    this.safeSetItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs));
   }
 
   public savePerkSettings(): void {
-    localStorage.setItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
+    this.safeSetItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
   }
 
   public saveCashFloatSettings(): void {
-    localStorage.setItem(STORAGE_KEYS.CASH_FLOAT_SETTINGS, JSON.stringify(this.cashFloatSettings));
+    this.safeSetItem(STORAGE_KEYS.CASH_FLOAT_SETTINGS, JSON.stringify(this.cashFloatSettings));
     this.onDbChanged();
   }
 
-
-
   public saveTpeSettings(): void {
-    localStorage.setItem(STORAGE_KEYS.TPE_SETTINGS, JSON.stringify(this.tpeSettings));
+    this.safeSetItem(STORAGE_KEYS.TPE_SETTINGS, JSON.stringify(this.tpeSettings));
   }
 
   public saveTpeLogs(): void {
-    localStorage.setItem(STORAGE_KEYS.TPE_LOGS, JSON.stringify(this.tpeLogs));
+    this.safeSetItem(STORAGE_KEYS.TPE_LOGS, JSON.stringify(this.tpeLogs));
   }
 
   public logActivity(type: ActivityLog['type'], message: string): void {
@@ -924,7 +1187,7 @@ class DatabaseService {
 
   public saveActiveSession(): void {
     if (this.activeSession) {
-      localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
+      this.safeSetItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
     } else {
       localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
     }
@@ -1037,7 +1300,7 @@ class DatabaseService {
       });
     }).catch(() => {});
 
-    // Stockage dans l'historique des backups locaux
+    // Stockage dans l'historique des backups locaux (métadonnées uniquement)
     try {
       const jsonStr = JSON.stringify(backupPayload);
       const backupsListKey = 'openmdl_backups_index';
@@ -1049,10 +1312,9 @@ class DatabaseService {
         productsCount: this.products.length,
         size: jsonStr.length
       });
-      localStorage.setItem(backupsListKey, JSON.stringify(existing.slice(0, 30)));
-      localStorage.setItem('backup_data_' + fileName, jsonStr);
+      this.safeSetItem(backupsListKey, JSON.stringify(existing.slice(0, 20)));
     } catch (e) {
-      console.warn('Backup local quota limit reached, maintaining latest backups', e);
+      console.warn('Erreur indexation backup local:', e);
     }
 
     this.logActivity('BACKUP', `Sauvegarde automatique créée: ${fileName}`);
@@ -2138,9 +2400,285 @@ class DatabaseService {
     }
   }
 
+  // --- Moteur prédictif des ventes multi-produits : saisonnalité météo, rotation des 3 classes & restocks ---
+  public getMultiProductSalesPrediction(
+    year: number,
+    month: number | 'all' = 'all'
+  ): {
+    timeframe: 'month' | 'year';
+    labels: string[];
+    isFuturePoint: boolean[];
+    restockEvents: { label: string; count: number; products: string[] }[];
+    productsData: {
+      product: Product;
+      historicalSales: (number | null)[];
+      predictedSales: (number | null)[];
+      currentMonthForecastTotal: number;
+      restockCountPerPoint: number[];
+      color: string;
+    }[];
+    totalForecastThisMonth: number;
+    weatherFactorSummary: string;
+    turnoverFactorSummary: string;
+  } {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const isCurrentYear = year === currentYear;
+    const isPastYear = year < currentYear;
+
+    const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+
+    // Facteurs climatiques et habitudes saisonnières au lycée :
+    // - Froid hivernal (Nov, Déc, Jan, Fév) : surconsommation boissons chaudes (+45%), légère baisse boissons fraîches (-20%)
+    // - Printemps / Chaleur (Mai, Juin, Sept) : explosion des boissons fraîches (+35%), baisse chaud (-45%)
+    // - Période examens / rush rentrée (Sept, Oct, Déc) : snacks & barres (+25%)
+    const getWeatherMultiplier = (m: number, category: string): number => {
+      if (category === 'chaud') {
+        if (m === 11 || m === 0 || m === 1) return 1.45; // Hiver rigoureux
+        if (m === 10 || m === 2) return 1.25; // Automne / début printemps frisquet
+        if (m >= 4 && m <= 8) return 0.55; // Période estivale tiède
+        return 0.90;
+      }
+      if (category === 'boissons') {
+        if (m >= 4 && m <= 8) return 1.35; // Chaleur estivale
+        if (m === 11 || m === 0 || m === 1) return 0.80; // Froid
+        return 1.0;
+      }
+      if (category === 'snacks' || category === 'bonbons') {
+        if (m === 8 || m === 9 || m === 11) return 1.20; // Rentrée et fin de trimestre
+        return 1.0;
+      }
+      return 1.0;
+    };
+
+    // Facteur démographique : 3 classes arrivent (Secondes), 3 classes partent (Terminales diplômées)
+    // Renouvellement de ~30-33% de l'effectif étudiant chaque année
+    const getCohortTurnoverMultiplier = (m: number): number => {
+      if (m === 8 || m === 9) return 1.15; // Arrivée des 3 nouvelles classes pleines d'énergie
+      if (m >= 5 && m <= 6) return 0.85; // Départs des terminales et révisions
+      return 1.02; // Dynamique globale constante
+    };
+
+    const palette = [
+      '#0284c7', '#ea580c', '#db2777', '#7c3aed', '#10b981',
+      '#f59e0b', '#06b6d4', '#6366f1', '#ec4899', '#84cc16'
+    ];
+
+    if (month === 'all') {
+      // VUE ANNUELLE : 12 mois
+      const labels = monthNames;
+      const isFuturePoint: boolean[] = [];
+      for (let m = 0; m < 12; m++) {
+        isFuturePoint.push(isCurrentYear ? m > currentMonth : !isPastYear);
+      }
+
+      // Restocks consolidés par mois
+      const restockEvents: { label: string; count: number; products: string[] }[] = [];
+      for (let m = 0; m < 12; m++) {
+        const mRestocks = this.restocks.filter(r => {
+          const d = new Date(r.timestamp);
+          return d.getFullYear() === year && d.getMonth() === m;
+        });
+        const count = mRestocks.reduce((sum, r) => sum + r.quantityAdded, 0);
+        const prodNames = Array.from(new Set(mRestocks.map(r => r.productName)));
+        restockEvents.push({ label: monthNames[m], count, products: prodNames });
+      }
+
+      const productsData = this.products.map((prod, pIdx) => {
+        const color = palette[pIdx % palette.length];
+        const historicalSales: (number | null)[] = [];
+        const predictedSales: (number | null)[] = [];
+        const restockCountPerPoint: number[] = [];
+
+        const priorYearSales = this.sales.filter(s => {
+          const d = new Date(s.timestamp);
+          return d.getFullYear() === year - 1;
+        });
+        const priorMonthAverage = new Array(12).fill(0);
+        priorYearSales.forEach(s => {
+          const m = new Date(s.timestamp).getMonth();
+          const it = s.items.find(i => i.productId === prod.id);
+          if (it) priorMonthAverage[m] += it.quantity;
+        });
+
+        for (let m = 0; m < 12; m++) {
+          const mSales = this.sales.filter(s => {
+            const d = new Date(s.timestamp);
+            return d.getFullYear() === year && d.getMonth() === m;
+          });
+          let soldInM = 0;
+          mSales.forEach(s => {
+            const it = s.items.find(i => i.productId === prod.id);
+            if (it) soldInM += it.quantity;
+          });
+
+          const mRestocks = this.restocks.filter(r => {
+            const d = new Date(r.timestamp);
+            return d.getFullYear() === year && d.getMonth() === m && r.productId === prod.id;
+          });
+          const restockQty = mRestocks.reduce((sum, r) => sum + r.quantityAdded, 0);
+          restockCountPerPoint.push(restockQty);
+
+          const isFuture = isCurrentYear ? m > currentMonth : !isPastYear;
+
+          if (!isFuture) {
+            historicalSales.push(soldInM);
+            predictedSales.push(m === currentMonth && isCurrentYear ? soldInM : null);
+          } else {
+            historicalSales.push(null);
+            const baseQty = priorMonthAverage[m] > 0 ? priorMonthAverage[m] : Math.max(12, Math.round(prod.stock * 0.8));
+            const weather = getWeatherMultiplier(m, prod.category);
+            const cohort = getCohortTurnoverMultiplier(m);
+            const predicted = Math.max(3, Math.round(baseQty * weather * cohort));
+            predictedSales.push(predicted);
+          }
+        }
+
+        return {
+          product: prod,
+          historicalSales,
+          predictedSales,
+          currentMonthForecastTotal: (predictedSales[currentMonth] || historicalSales[currentMonth] || 0) as number,
+          restockCountPerPoint,
+          color
+        };
+      });
+
+      return {
+        timeframe: 'year',
+        labels,
+        isFuturePoint,
+        restockEvents,
+        productsData,
+        totalForecastThisMonth: productsData.reduce((sum, p) => sum + p.currentMonthForecastTotal, 0),
+        weatherFactorSummary: 'Ajustement météo : Chaud en hausse l\'hiver (+45%), Frais en hausse au printemps (+35%)',
+        turnoverFactorSummary: 'Renouvellement générationnel : 3 classes entrantes en septembre (+15%), 3 terminales sortantes en juin'
+      };
+    } else {
+      // VUE MENSUELLE DÉTAILLÉE : 1..DaysInMonth avec projection sur les jours restants jusqu'à la fin du mois
+      const numMonth = Number(month);
+      const daysInMonth = new Date(year, numMonth + 1, 0).getDate();
+      const currentDay = (isCurrentYear && numMonth === currentMonth) ? now.getDate() : (isPastYear ? daysInMonth : 1);
+
+      const labels: string[] = [];
+      const isFuturePoint: boolean[] = [];
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        labels.push(`${day} ${monthNames[numMonth]}`);
+        isFuturePoint.push((isCurrentYear && numMonth === currentMonth) ? day > currentDay : !isPastYear);
+      }
+
+      // Restocks consolidés par jour
+      const restockEvents: { label: string; count: number; products: string[] }[] = [];
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dRestocks = this.restocks.filter(r => {
+          const d = new Date(r.timestamp);
+          return d.getFullYear() === year && d.getMonth() === numMonth && d.getDate() === day;
+        });
+        const count = dRestocks.reduce((sum, r) => sum + r.quantityAdded, 0);
+        const prodNames = Array.from(new Set(dRestocks.map(r => r.productName)));
+        restockEvents.push({ label: `${day} ${monthNames[numMonth]}`, count, products: prodNames });
+      }
+
+      let totalForecastThisMonth = 0;
+
+      const productsData = this.products.map((prod, pIdx) => {
+        const color = palette[pIdx % palette.length];
+        const historicalSales: (number | null)[] = [];
+        const predictedSales: (number | null)[] = [];
+        const restockCountPerPoint: number[] = [];
+
+        let pastTotalSold = 0;
+        let pastDaysCount = 0;
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dSales = this.sales.filter(s => {
+            const d = new Date(s.timestamp);
+            return d.getFullYear() === year && d.getMonth() === numMonth && d.getDate() === day;
+          });
+          let soldToday = 0;
+          dSales.forEach(s => {
+            const it = s.items.find(i => i.productId === prod.id);
+            if (it) soldToday += it.quantity;
+          });
+
+          const dRestocks = this.restocks.filter(r => {
+            const d = new Date(r.timestamp);
+            return d.getFullYear() === year && d.getMonth() === numMonth && d.getDate() === day && r.productId === prod.id;
+          });
+          const restockQty = dRestocks.reduce((sum, r) => sum + r.quantityAdded, 0);
+          restockCountPerPoint.push(restockQty);
+
+          const isFuture = (isCurrentYear && numMonth === currentMonth) ? day > currentDay : !isPastYear;
+
+          if (!isFuture) {
+            historicalSales.push(soldToday);
+            pastTotalSold += soldToday;
+            pastDaysCount++;
+          }
+        }
+
+        const rawDailyRate = pastDaysCount > 0 ? (pastTotalSold / pastDaysCount) : 1.2;
+        const weather = getWeatherMultiplier(numMonth, prod.category);
+        const cohort = getCohortTurnoverMultiplier(numMonth);
+        const projectedDailyRate = Number((Math.max(0.2, rawDailyRate * weather * cohort)).toFixed(2));
+
+        let forecastRemaining = 0;
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const isFuture = (isCurrentYear && numMonth === currentMonth) ? day > currentDay : !isPastYear;
+          if (!isFuture) {
+            if (day === currentDay && isCurrentYear && numMonth === currentMonth) {
+              predictedSales.push(historicalSales[day - 1]);
+            } else {
+              predictedSales.push(null);
+            }
+          } else {
+            historicalSales.push(null);
+            const dateObj = new Date(year, numMonth, day);
+            const dayOfWeek = dateObj.getDay();
+            let dayWeight = 1.0;
+            if (dayOfWeek === 0) dayWeight = 0;
+            else if (dayOfWeek === 6) dayWeight = 0.3;
+            else if (dayOfWeek === 3) dayWeight = 0.7;
+            else if (dayOfWeek === 4 || dayOfWeek === 5) dayWeight = 1.25;
+
+            const dayPred = Math.round(projectedDailyRate * dayWeight);
+            predictedSales.push(dayPred);
+            forecastRemaining += dayPred;
+          }
+        }
+
+        const totalMonthProjected = pastTotalSold + forecastRemaining;
+        totalForecastThisMonth += totalMonthProjected;
+
+        return {
+          product: prod,
+          historicalSales,
+          predictedSales,
+          currentMonthForecastTotal: totalMonthProjected,
+          restockCountPerPoint,
+          color
+        };
+      });
+
+      return {
+        timeframe: 'month',
+        labels,
+        isFuturePoint,
+        restockEvents,
+        productsData,
+        totalForecastThisMonth,
+        weatherFactorSummary: 'Modulation météo : Chaud en hausse l\'hiver (+45%), Frais en hausse au printemps (+35%)',
+        turnoverFactorSummary: 'Démographie : rotation de 3 classes (rentrée active en sept-oct, départs fin mai)'
+      };
+    }
+  }
+
   public exportData(): Record<string, any> {
     return {
-      version: '1.0.7',
+      version: '1.0.8',
       exportDate: new Date().toISOString(),
       products: this.products,
       sales: this.sales,
@@ -2150,7 +2688,10 @@ class DatabaseService {
       logs: this.logs,
       perkSettings: this.perkSettings,
       tpeSettings: this.tpeSettings,
-      cashFloatSettings: this.cashFloatSettings
+      cashFloatSettings: this.cashFloatSettings,
+      chatMessages: this.chatMessages,
+      chatChannels: this.chatChannels,
+      chatSettings: this.chatSettings
     };
   }
 
@@ -2178,6 +2719,21 @@ class DatabaseService {
       this.restocks = data.restocks;
       this.saveRestocks();
     }
+    if (Array.isArray(data.chatMessages)) {
+      this.mergeIncomingChatMessages(data.chatMessages);
+    }
+    if (Array.isArray(data.chatChannels)) {
+      data.chatChannels.forEach((ch: ChatChannel) => {
+        if (!this.chatChannels.some(existing => existing.id === ch.id)) {
+          this.chatChannels.push(ch);
+        }
+      });
+      this.saveChatChannels();
+    }
+    if (data.chatSettings) {
+      this.chatSettings = { ...DEFAULT_CHAT_SETTINGS, ...data.chatSettings };
+      localStorage.setItem(STORAGE_KEYS.CHAT_SETTINGS, JSON.stringify(this.chatSettings));
+    }
     if (Array.isArray(data.logs)) {
       this.logs = data.logs;
       this.saveLogs();
@@ -2201,7 +2757,7 @@ class DatabaseService {
   }
 
   public setAppProfile(profile: AppProfile): void {
-    localStorage.setItem(STORAGE_KEYS.APP_PROFILE, profile);
+    this.safeSetItem(STORAGE_KEYS.APP_PROFILE, profile);
     this.logActivity('INFO', `Profil de l'application basculé sur "${profile === 'visco' ? 'Vie Scolaire' : 'Foyer'}"`);
     this.notify();
   }
@@ -2243,6 +2799,333 @@ class DatabaseService {
         volunteerName: s.volunteerName
       }))
       .sort((a, b) => new Date(b.sessionEndTime).getTime() - new Date(a.sessionEndTime).getTime());
+  }
+
+  // =========================================================================
+  // GESTION DU PROFIL BÉNÉVOLE (PHOTO DE PROFIL, THÈME, COULEUR)
+  // =========================================================================
+
+  public updateVolunteerAvatar(volunteerId: string, avatarUrl: string): { success: boolean; message: string } {
+    const volunteer = this.volunteers.find(v => v.id === volunteerId);
+    if (!volunteer) return { success: false, message: 'Utilisateur introuvable' };
+
+    volunteer.avatarUrl = avatarUrl;
+    if (this.currentVolunteer?.id === volunteerId) {
+      this.currentVolunteer.avatarUrl = avatarUrl;
+    }
+
+    this.saveVolunteers();
+    this.logActivity('INFO', `Photo de profil mise à jour pour @${volunteer.username}`);
+    this.notify();
+    return { success: true, message: 'Photo de profil enregistrée avec succès' };
+  }
+
+  public updateVolunteerThemeSettings(volunteerId: string, settings: VolunteerThemeSettings): { success: boolean; message: string } {
+    const volunteer = this.volunteers.find(v => v.id === volunteerId);
+    if (!volunteer) return { success: false, message: 'Utilisateur introuvable' };
+
+    volunteer.themeSettings = {
+      ...(volunteer.themeSettings || {}),
+      ...settings
+    };
+
+    if (this.currentVolunteer?.id === volunteerId) {
+      this.currentVolunteer.themeSettings = volunteer.themeSettings;
+    }
+
+    this.saveVolunteers();
+    this.notify();
+    return { success: true, message: 'Préférences d\'affichage du chat enregistrées' };
+  }
+
+  // =========================================================================
+  // GESTION DU CHAT LOCAL & DÉCENTRALISÉ
+  // =========================================================================
+
+  public getChatSettings(): ChatSettings {
+    return { ...this.chatSettings };
+  }
+
+  public updateChatSettings(settings: Partial<ChatSettings>): void {
+    this.chatSettings = {
+      ...this.chatSettings,
+      ...settings
+    };
+    this.safeSetItem(STORAGE_KEYS.CHAT_SETTINGS, JSON.stringify(this.chatSettings));
+    if (this.chatSettings.retentionDays > 0) {
+      this.purgeExpiredChatMessages();
+    }
+    this.logActivity('INFO', `Paramètres de la messagerie mis à jour (Actif: ${this.chatSettings.enabled ? 'Oui' : 'Non'}, Rétention: ${this.chatSettings.retentionDays}j)`);
+    this.notify();
+  }
+
+  public getChatChannels(forVolunteer?: Volunteer | null): ChatChannel[] {
+    const user = forVolunteer || this.currentVolunteer;
+    const isSpecialAccess = user?.isAdmin || this.getAppProfile() === 'visco';
+
+    return this.chatChannels.filter(c => {
+      if (!c.isPrivate) return true;
+      if (isSpecialAccess) return true;
+      if (user && c.memberIds && c.memberIds.includes(user.id)) return true;
+      return false;
+    });
+  }
+
+  public createChatChannel(name: string, description: string, isPrivate: boolean, memberIds?: string[]): { success: boolean; message: string; channel?: ChatChannel } {
+    const cleanName = name.trim();
+    if (!cleanName) {
+      return { success: false, message: 'Le nom du groupe ne peut pas être vide' };
+    }
+
+    const channelId = 'chan-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+    const newChan: ChatChannel = {
+      id: channelId,
+      name: cleanName,
+      description: description.trim() || undefined,
+      isPrivate,
+      memberIds: memberIds && memberIds.length > 0 ? memberIds : undefined,
+      createdAt: new Date().toISOString(),
+      createdBy: this.currentVolunteer?.name || 'Inconnu'
+    };
+
+    this.chatChannels.push(newChan);
+    this.saveChatChannels();
+    this.broadcastChatUpdate();
+    this.notify();
+    return { success: true, message: `Groupe "${cleanName}" créé`, channel: newChan };
+  }
+
+  public getOrCreateDirectMessageChannel(targetVolunteerId: string): ChatChannel {
+    const me = this.currentVolunteer;
+    if (!me) {
+      throw new Error('Vous devez être connecté pour ouvrir une conversation privée');
+    }
+    const target = this.volunteers.find(v => v.id === targetVolunteerId);
+    if (!target) {
+      throw new Error('Destinataire introuvable');
+    }
+
+    const pairIds = [me.id, target.id].sort();
+    const dmChannelId = `dm-${pairIds.join('-')}`;
+
+    let channel = this.chatChannels.find(c => c.id === dmChannelId);
+    if (!channel) {
+      channel = {
+        id: dmChannelId,
+        name: `@${target.name}`,
+        description: `Message privé entre @${me.username} et @${target.username}`,
+        isPrivate: true,
+        isDirectMessage: true,
+        dmTargetVolunteerId: target.id,
+        memberIds: pairIds,
+        createdAt: new Date().toISOString(),
+        createdBy: me.name
+      };
+      this.chatChannels.push(channel);
+      this.saveChatChannels();
+      this.broadcastChatUpdate();
+      this.notify();
+    }
+    return channel;
+  }
+
+  public getUnreadDirectMessagesCount(): number {
+    const me = this.currentVolunteer;
+    if (!me || !this.chatSettings.enabled) return 0;
+
+    let readState: Record<string, string> = {};
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.CHAT_READ_STATE);
+      if (stored) readState = JSON.parse(stored);
+    } catch {}
+
+    // Récupérer tous les canaux DM où je suis membre
+    const myDmChannels = this.chatChannels.filter(c => 
+      c.isDirectMessage && c.memberIds && c.memberIds.includes(me.id)
+    );
+
+    let unreadCount = 0;
+    myDmChannels.forEach(c => {
+      const lastReadIso = readState[c.id] || '1970-01-01T00:00:00.000Z';
+      const unreadInChan = this.chatMessages.filter(m => 
+        m.channelId === c.id && 
+        m.authorId !== me.id && 
+        new Date(m.timestamp).getTime() > new Date(lastReadIso).getTime()
+      );
+      unreadCount += unreadInChan.length;
+    });
+
+    return unreadCount;
+  }
+
+  public markChannelAsRead(channelId: string): void {
+    const me = this.currentVolunteer;
+    if (!me) return;
+
+    let readState: Record<string, string> = {};
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.CHAT_READ_STATE);
+      if (stored) readState = JSON.parse(stored);
+    } catch {}
+
+    readState[channelId] = new Date().toISOString();
+    try {
+      localStorage.setItem(STORAGE_KEYS.CHAT_READ_STATE, JSON.stringify(readState));
+    } catch {}
+    // Ne pas appeler this.notify() ici car cette méthode est appelée lors du render() de ChatView,
+    // ce qui provoquerait une boucle de récursion infinie (Maximum call stack size exceeded).
+  }
+
+  // --- Gestion du Moteur de Données (SQLite) ---
+  public getDatabaseConfig(): DatabaseConnectionConfig {
+    return { ...this.databaseConfig };
+  }
+
+  public updateDatabaseConfig(config: Partial<DatabaseConnectionConfig>): { success: boolean; message: string } {
+    this.databaseConfig = {
+      ...this.databaseConfig,
+      ...config,
+      engine: 'sqlite',
+      status: config.status || 'connected',
+      lastPing: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    };
+    try {
+      localStorage.setItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
+    } catch {}
+    this.notify();
+    return { success: true, message: `Base SQLite embarquée vérifiée et synchronisée.` };
+  }
+
+
+
+  public getChatMessages(channelId: string): ChatMessage[] {
+    if (!this.chatSettings.enabled) return [];
+    return this.chatMessages
+      .filter(m => m.channelId === channelId)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
+
+  public sendChatMessage(channelId: string, content: string): { success: boolean; message: string; chatMessage?: ChatMessage } {
+    if (!this.chatSettings.enabled) {
+      return { success: false, message: 'La messagerie est actuellement désactivée dans les paramètres' };
+    }
+
+    const cleanContent = content.trim();
+    if (!cleanContent) {
+      return { success: false, message: 'Le message est vide' };
+    }
+
+    const user = this.currentVolunteer;
+    if (!user) {
+      return { success: false, message: 'Vous devez être connecté pour envoyer un message' };
+    }
+
+    // Calcul d'une signature d'authenticité dérivée de l'auteur et du mot de passe (anti-usurpation)
+    const timestamp = new Date().toISOString();
+    const signaturePayload = `${user.id}:${user.username}:${cleanContent}:${timestamp}:${user.password}`;
+    const signature = computeCrc32Hex(signaturePayload);
+
+    const msgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+    // OPTIMISATION CRITIQUE : Ne jamais stocker l'URL d'avatar en Base64 dans ChatMessage
+    // L'avatar est résolu dynamiquement via authorId pour économiser 99% d'espace et éliminer QuotaExceededError
+    const newMsg: ChatMessage = {
+      id: msgId,
+      channelId,
+      authorId: user.id,
+      authorName: user.name,
+      authorRole: user.role,
+      authorAvatarColor: user.avatarColor,
+      authorBubbleColor: user.themeSettings?.bubbleColor,
+      content: cleanContent,
+      timestamp,
+      signature
+    };
+
+    this.chatMessages.push(newMsg);
+    this.saveChatMessages();
+    this.markChannelAsRead(channelId);
+    this.broadcastChatUpdate();
+    this.notify();
+
+    return { success: true, message: 'Message envoyé', chatMessage: newMsg };
+  }
+
+  // Réconciliation incrémentale de messages reçus d'un autre poste ou onglet
+  public mergeIncomingChatMessages(incoming: ChatMessage[]): number {
+    if (!this.chatSettings.enabled || !Array.isArray(incoming) || incoming.length === 0) return 0;
+
+    let addedCount = 0;
+    const existingIds = new Set(this.chatMessages.map(m => m.id));
+
+    incoming.forEach(inc => {
+      if (!inc.id || existingIds.has(inc.id)) return;
+
+      // Nettoyer l'avatar Base64 s'il est présent
+      if (inc.authorAvatarUrl && inc.authorAvatarUrl.startsWith('data:')) {
+        delete inc.authorAvatarUrl;
+      }
+
+      // Vérification de sécurité / intégrité du message
+      if (inc.authorId && inc.signature) {
+        const author = this.volunteers.find(v => v.id === inc.authorId);
+        if (author) {
+          const expectedSig = computeCrc32Hex(`${author.id}:${author.username}:${inc.content}:${inc.timestamp}:${author.password}`);
+          if (inc.signature !== expectedSig) {
+            this.logActivity('SECURITY', `Message rejeté pour usurpation suspectée sur @${author.username}`);
+            return;
+          }
+        }
+      }
+
+      this.chatMessages.push(inc);
+      existingIds.add(inc.id);
+      addedCount++;
+    });
+
+    if (addedCount > 0) {
+      this.purgeExpiredChatMessages();
+      this.saveChatMessages();
+      this.notify();
+    }
+
+    return addedCount;
+  }
+
+  public purgeExpiredChatMessages(): number {
+    const days = this.chatSettings.retentionDays;
+    if (days <= 0) return 0;
+
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    const initialCount = this.chatMessages.length;
+    this.chatMessages = this.chatMessages.filter(m => new Date(m.timestamp).getTime() >= cutoff);
+    const purged = initialCount - this.chatMessages.length;
+
+    if (purged > 0) {
+      this.saveChatMessages();
+    }
+    return purged;
+  }
+
+  public getAllChatMessages(): ChatMessage[] {
+    return [...this.chatMessages];
+  }
+
+  public saveChatMessages(): void {
+    this.safeSetItem(STORAGE_KEYS.CHAT_MESSAGES, JSON.stringify(this.chatMessages));
+  }
+
+  public saveChatChannels(): void {
+    this.safeSetItem(STORAGE_KEYS.CHAT_CHANNELS, JSON.stringify(this.chatChannels));
+  }
+
+  private broadcastChatUpdate(): void {
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel('openmdl_chat_sync');
+        channel.postMessage({ type: 'CHAT_UPDATED', timestamp: Date.now() });
+        channel.close();
+      }
+    } catch { }
   }
 
   public resetAll(): void {

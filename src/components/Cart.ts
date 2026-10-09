@@ -141,48 +141,37 @@ export class CartComponent {
 
     container.appendChild(listContainer);
 
-    // Pied du Panier (Total & Actions d'encaissement direct Espèces vs Carte TPE)
+    // Pied du Panier (Total Interactif : Clic Gauche = Espèces, Clic Droit = Carte TPE)
     const footer = document.createElement('div');
     footer.className = 'p-4 sm:p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3';
 
+    const hasItems = this.items.length > 0;
+
     footer.innerHTML = `
-      <div class="p-3.5 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 flex items-baseline justify-between shadow-xs">
+      <div 
+        id="cart-total-card"
+        class="group relative p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800/90 dark:to-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between shadow-xs transition-all select-none ${
+          hasItems 
+            ? 'cursor-pointer hover:border-orange-500/50 hover:shadow-md hover:scale-[1.01] active:scale-[0.99]' 
+            : 'opacity-50 cursor-not-allowed'
+        }"
+        title="${hasItems ? 'Clic gauche : Encaisser Espèces • Clic droit : Encaisser Carte TPE' : 'Ajoutez des articles au ticket'}"
+      >
         <div>
           <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 block">TOTAL COMMANDE</span>
-          <span class="text-xs text-slate-500 dark:text-slate-400 font-bold">${totalCount} article${totalCount > 1 ? 's' : ''}</span>
+          <span class="text-xs text-slate-600 dark:text-slate-300 font-bold">${totalCount} article${totalCount > 1 ? 's' : ''}</span>
         </div>
-        <span class="font-mono-nums font-black text-2xl sm:text-3xl text-slate-900 dark:text-white tracking-tight">${total.toFixed(2)} €</span>
-      </div>
 
-      <!-- 2 Gros Boutons d'Encaissement Direct (Rush 1 Clic) -->
-      <div class="grid grid-cols-2 gap-2.5">
-        <button 
-          id="btn-checkout-cash" 
-          type="button"
-          class="group relative py-3.5 px-2.5 sm:px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/25 active:scale-[0.97] transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex flex-col items-center justify-center gap-1 overflow-hidden" 
-          ${this.items.length === 0 ? 'disabled' : ''}
-          title="Encaisser en Espèces [Accès direct]"
-        >
-          <div class="flex items-center gap-1.5 font-black text-xs uppercase tracking-wider">
-            ${Icons.banknote('w-4 h-4')}
-            <span>Espèces</span>
-          </div>
-          <span class="font-mono-nums font-black text-sm text-emerald-100 group-hover:text-white tracking-tight">${total.toFixed(2)} €</span>
-        </button>
-
-        <button 
-          id="btn-checkout-tpe" 
-          type="button"
-          class="group relative py-3.5 px-2.5 sm:px-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/25 active:scale-[0.97] transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex flex-col items-center justify-center gap-1 overflow-hidden" 
-          ${this.items.length === 0 ? 'disabled' : ''}
-          title="Encaisser par Carte / TPE SumUp [Accès direct]"
-        >
-          <div class="flex items-center gap-1.5 font-black text-xs uppercase tracking-wider">
-            ${Icons.creditCard('w-4 h-4')}
-            <span>Carte TPE</span>
-          </div>
-          <span class="font-mono-nums font-black text-sm text-indigo-100 group-hover:text-white tracking-tight">${total.toFixed(2)} €</span>
-        </button>
+        <div class="text-right">
+          <span class="font-mono-nums font-black text-2xl sm:text-3xl text-slate-900 dark:text-white tracking-tight block">${total.toFixed(2)} €</span>
+          ${hasItems ? `
+            <div class="flex items-center justify-end gap-2 text-[10px] font-semibold text-slate-400 dark:text-slate-400 mt-0.5">
+              <span class="text-emerald-600 dark:text-emerald-400 font-bold">Clic G : Espèces</span>
+              <span>•</span>
+              <span class="text-indigo-600 dark:text-indigo-400 font-bold">Clic D : Carte TPE</span>
+            </div>
+          ` : ''}
+        </div>
       </div>
 
       <div class="flex items-center justify-between text-xs px-1 pt-0.5">
@@ -196,7 +185,7 @@ export class CartComponent {
           ${Icons.trash('w-3.5 h-3.5')}
           <span>Vider le ticket</span>
         </button>
-        <span class="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">1 clic = mode direct</span>
+        <span class="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Clic G = Espèces | Clic D = TPE</span>
       </div>
     `;
 
@@ -204,17 +193,21 @@ export class CartComponent {
       this.clear();
     });
 
-    footer.querySelector('#btn-checkout-cash')?.addEventListener('click', () => {
-      if (this.items.length > 0) {
+    const totalCard = footer.querySelector('#cart-total-card');
+    if (totalCard && hasItems) {
+      // Clic Gauche : Encaissement Espèces
+      totalCard.addEventListener('click', (e) => {
+        e.preventDefault();
         this.onCheckoutCallback('especes');
-      }
-    });
+      });
 
-    footer.querySelector('#btn-checkout-tpe')?.addEventListener('click', () => {
-      if (this.items.length > 0) {
+      // Clic Droit : Encaissement Carte / TPE (avec suppression du menu contextuel navigateur)
+      totalCard.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         this.onCheckoutCallback('tpe');
-      }
-    });
+      });
+    }
 
     container.appendChild(footer);
     return container;

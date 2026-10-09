@@ -51,10 +51,16 @@
   }
 
   /* Reset spécifique WebKit / WebKitGTK pour éliminer les bordures/effets natifs du système */
-  button, input, select, textarea {
+  button, input:not([type="checkbox"]):not([type="radio"]), select, textarea {
     -webkit-appearance: none;
     appearance: none;
     font-family: inherit;
+  }
+
+  input[type="checkbox"], input[type="radio"] {
+    -webkit-appearance: auto;
+    appearance: auto;
+    cursor: pointer;
   }
 
   button {

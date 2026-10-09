@@ -3,14 +3,19 @@ use std::io::Write;
 use std::path::PathBuf;
 use tauri::Manager;
 
-mod lan_server;
 mod binary_format;
+mod lan_server;
+mod sqlite_storage;
 
 fn get_app_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     app_handle
         .path()
         .app_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn get_sqlite(app_handle: &tauri::AppHandle) -> Result<sqlite_storage::SqliteStorage, String> {
+    sqlite_storage::SqliteStorage::new(get_app_dir(app_handle))
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -43,7 +48,11 @@ fn unpack_backup_binary(bytes: Vec<u8>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn save_backup_binary(app_handle: tauri::AppHandle, tag: String, data: String) -> Result<String, String> {
+fn save_backup_binary(
+    app_handle: tauri::AppHandle,
+    tag: String,
+    data: String,
+) -> Result<String, String> {
     let app_dir = get_app_dir(&app_handle);
     let backups_dir = app_dir.join("backups");
 
@@ -65,7 +74,10 @@ fn save_backup_binary(app_handle: tauri::AppHandle, tag: String, data: String) -
 
     let binary_bytes = binary_format::pack_mdlb(&data)?;
     if let Err(e) = fs::write(&file_path, binary_bytes) {
-        return Err(format!("Erreur lors de l'écriture du backup binaire: {}", e));
+        return Err(format!(
+            "Erreur lors de l'écriture du backup binaire: {}",
+            e
+        ));
     }
 
     Ok(file_path.to_string_lossy().to_string())
@@ -112,7 +124,8 @@ fn list_backups(app_handle: tauri::AppHandle) -> Result<Vec<BackupEntryDto>, Str
 
 #[tauri::command]
 fn read_backup_file(file_path: String) -> Result<String, String> {
-    let bytes = fs::read(&file_path).map_err(|e| format!("Impossible de lire {}: {}", file_path, e))?;
+    let bytes =
+        fs::read(&file_path).map_err(|e| format!("Impossible de lire {}: {}", file_path, e))?;
     if bytes.starts_with(b"MDLB") {
         binary_format::unpack_mdlb(&bytes)
     } else {
@@ -125,12 +138,22 @@ fn write_binary_file(file_path: String, bytes: Vec<u8>) -> Result<(), String> {
     if let Some(parent) = std::path::Path::new(&file_path).parent() {
         let _ = fs::create_dir_all(parent);
     }
-    fs::write(&file_path, bytes).map_err(|e| format!("Impossible d'ecrire le fichier binaire sur {}: {}", file_path, e))
+    fs::write(&file_path, bytes).map_err(|e| {
+        format!(
+            "Impossible d'ecrire le fichier binaire sur {}: {}",
+            file_path, e
+        )
+    })
 }
 
 #[tauri::command]
 fn read_binary_file(file_path: String) -> Result<Vec<u8>, String> {
-    fs::read(&file_path).map_err(|e| format!("Impossible de lire le fichier binaire sur {}: {}", file_path, e))
+    fs::read(&file_path).map_err(|e| {
+        format!(
+            "Impossible de lire le fichier binaire sur {}: {}",
+            file_path, e
+        )
+    })
 }
 
 #[tauri::command]
@@ -235,7 +258,10 @@ fn open_in_external_editor(
 
     let addon_dir = app_dir.join("addons_dev").join(&safe_id);
     if let Err(e) = fs::create_dir_all(&addon_dir) {
-        return Err(format!("Impossible de créer le dossier de développement: {}", e));
+        return Err(format!(
+            "Impossible de créer le dossier de développement: {}",
+            e
+        ));
     }
 
     for file in files {
@@ -277,7 +303,11 @@ fn open_in_external_editor(
     let mut launched_editor = None;
 
     for ed in editors {
-        if std::process::Command::new(ed).arg(&target_str).spawn().is_ok() {
+        if std::process::Command::new(ed)
+            .arg(&target_str)
+            .spawn()
+            .is_ok()
+        {
             launched_editor = Some(ed.to_string());
             break;
         }
@@ -285,11 +315,15 @@ fn open_in_external_editor(
 
     if launched_editor.is_none() {
         #[cfg(target_os = "linux")]
-        let _ = std::process::Command::new("xdg-open").arg(&target_str).spawn();
+        let _ = std::process::Command::new("xdg-open")
+            .arg(&target_str)
+            .spawn();
         #[cfg(target_os = "macos")]
         let _ = std::process::Command::new("open").arg(&target_str).spawn();
         #[cfg(target_os = "windows")]
-        let _ = std::process::Command::new("explorer").arg(&target_str).spawn();
+        let _ = std::process::Command::new("explorer")
+            .arg(&target_str)
+            .spawn();
     }
 
     Ok(format!(
@@ -356,7 +390,11 @@ fn read_dir_recursive(
 }
 
 #[tauri::command]
-fn start_lan_server(port: u16, pin: Option<String>, db_json: String) -> Result<lan_server::LanServerInfo, String> {
+fn start_lan_server(
+    port: u16,
+    pin: Option<String>,
+    db_json: String,
+) -> Result<lan_server::LanServerInfo, String> {
     lan_server::start_server(port, pin, db_json)
 }
 
@@ -395,12 +433,85 @@ fn write_file_to_path(file_path: String, content: String) -> Result<(), String> 
     if let Some(parent) = std::path::Path::new(&file_path).parent() {
         let _ = fs::create_dir_all(parent);
     }
-    fs::write(&file_path, content).map_err(|e| format!("Impossible d'ecrire le fichier sur {}: {}", file_path, e))
+    fs::write(&file_path, content)
+        .map_err(|e| format!("Impossible d'ecrire le fichier sur {}: {}", file_path, e))
 }
 
 #[tauri::command]
 fn read_file_from_path(file_path: String) -> Result<String, String> {
-    fs::read_to_string(&file_path).map_err(|e| format!("Impossible de lire le fichier sur {}: {}", file_path, e))
+    fs::read_to_string(&file_path)
+        .map_err(|e| format!("Impossible de lire le fichier sur {}: {}", file_path, e))
+}
+
+#[tauri::command]
+fn sqlite_get_key(app_handle: tauri::AppHandle, key: String) -> Result<Option<String>, String> {
+    let storage = get_sqlite(&app_handle)?;
+    storage.get_key(&key)
+}
+
+#[tauri::command]
+fn sqlite_set_key(app_handle: tauri::AppHandle, key: String, value: String) -> Result<(), String> {
+    let storage = get_sqlite(&app_handle)?;
+    storage.set_key(&key, &value)
+}
+
+#[tauri::command]
+fn sqlite_get_all(app_handle: tauri::AppHandle) -> Result<Vec<(String, String)>, String> {
+    let storage = get_sqlite(&app_handle)?;
+    storage.get_all_keys()
+}
+
+#[tauri::command]
+fn sqlite_delete_key(app_handle: tauri::AppHandle, key: String) -> Result<(), String> {
+    let storage = get_sqlite(&app_handle)?;
+    storage.delete_key(&key)
+}
+
+#[tauri::command]
+fn sqlite_save_chat_message(
+    app_handle: tauri::AppHandle,
+    id: String,
+    channel_id: String,
+    author_id: String,
+    author_name: String,
+    author_role: String,
+    author_avatar_color: Option<String>,
+    author_bubble_color: Option<String>,
+    content: String,
+    timestamp: String,
+    signature: String,
+) -> Result<(), String> {
+    let storage = get_sqlite(&app_handle)?;
+    storage.save_chat_message(
+        &id,
+        &channel_id,
+        &author_id,
+        &author_name,
+        &author_role,
+        author_avatar_color.as_deref(),
+        author_bubble_color.as_deref(),
+        &content,
+        &timestamp,
+        &signature,
+    )
+}
+
+#[tauri::command]
+fn sqlite_get_chat_messages(
+    app_handle: tauri::AppHandle,
+    channel_id: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let storage = get_sqlite(&app_handle)?;
+    storage.get_chat_messages(channel_id.as_deref())
+}
+
+#[tauri::command]
+fn sqlite_reconcile_chat_votes(
+    app_handle: tauri::AppHandle,
+    candidate_messages: Vec<serde_json::Value>,
+) -> Result<usize, String> {
+    let storage = get_sqlite(&app_handle)?;
+    storage.reconcile_client_votes(&candidate_messages)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -452,7 +563,14 @@ pub fn run() {
             broadcast_lan_shutdown_alert,
             clear_lan_shutdown_alert,
             write_file_to_path,
-            read_file_from_path
+            read_file_from_path,
+            sqlite_get_key,
+            sqlite_set_key,
+            sqlite_get_all,
+            sqlite_delete_key,
+            sqlite_save_chat_message,
+            sqlite_get_chat_messages,
+            sqlite_reconcile_chat_votes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

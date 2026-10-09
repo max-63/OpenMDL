@@ -42,6 +42,12 @@ export interface Sale {
   sessionId: string;
 }
 
+export interface VolunteerThemeSettings {
+  bubbleColor?: string; // Couleur personnalisée des bulles envoyées (ex: #f97316)
+  chatBg?: 'default' | 'slate' | 'midnight' | 'emerald' | 'amber' | 'sunset' | 'custom'; // Fond d'ambiance du chat
+  customChatBgUrl?: string; // Image de fond optionnelle en base64
+}
+
 export interface Volunteer {
   id: string;
   username: string; // ex: 'admin', 'jeremy'
@@ -49,11 +55,57 @@ export interface Volunteer {
   name: string;
   role: string;
   avatarColor: string;
+  avatarUrl?: string; // Photo de profil personnalisée (Base64 data URL)
+  themeSettings?: VolunteerThemeSettings;
   isAdmin: boolean;
   isSuspended?: boolean;
   createdAt?: string;
   pinCode?: string;
+  publicKey?: string; // Clé publique pour vérification des signatures de messages
 }
+
+export interface ChatMessage {
+  id: string; // UUID v4 unique pour réconciliation incrémentale sans doublons
+  channelId: string; // ex: 'all', 'admins', ou UUID d'un groupe personnalisé
+  authorId: string; // ID du bénévole
+  authorName: string;
+  authorRole: string;
+  authorAvatarUrl?: string;
+  authorAvatarColor?: string;
+  authorBubbleColor?: string;
+  content: string; // Texte du message
+  timestamp: string; // ISO 8601 string
+  signature?: string; // Empreinte cryptographique anti-usurpation
+  isSystem?: boolean; // Message système / notification
+}
+
+export interface ChatChannel {
+  id: string;
+  name: string;
+  description?: string;
+  isPrivate: boolean; // Réservé aux admins / vie scolaire si true
+  memberIds?: string[]; // Si vide, ouvert à tous ceux autorisés
+  isDirectMessage?: boolean; // Vrai s'il s'agit d'un message privé entre 2 personnes
+  dmTargetVolunteerId?: string; // ID de l'interlocuteur pour affichage
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface ChatSettings {
+  enabled: boolean; // Interrupteur ON/OFF dans les paramètres
+  retentionDays: number; // 0 = illimité, 30 = 30 jours, 70 = 70 jours, etc.
+}
+
+export type DatabaseEngine = 'sqlite';
+
+export interface DatabaseConnectionConfig {
+  engine: DatabaseEngine;
+  status?: 'connected' | 'error';
+  lastPing?: string;
+  format?: string;
+}
+
+
 
 export interface Session {
   id: string;
