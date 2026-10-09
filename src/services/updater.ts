@@ -63,6 +63,7 @@ export class UpdaterService {
         this.activeUpdate = update;
         this.setState({
           status: 'available',
+          currentVersion: update.currentVersion || this.state.currentVersion,
           availableVersion: update.version,
           releaseNotes: update.body || 'Nouvelle version disponible avec correctifs et améliorations.',
           progressPercent: 0,
@@ -71,7 +72,10 @@ export class UpdaterService {
         });
       } else {
         this.activeUpdate = null;
-        this.setState({ status: 'up-to-date' });
+        this.setState({ 
+          status: 'up-to-date',
+          currentVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : this.state.currentVersion
+        });
       }
     } catch (err: any) {
       console.warn('Vérification des mises à jour:', err);

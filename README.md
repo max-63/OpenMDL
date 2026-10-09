@@ -14,6 +14,8 @@ OpenMDL simplifie la gestion quotidienne des permanences au foyer : encaissement
   [![Vite](https://img.shields.io/badge/Vite-v8-646CFF?logo=vite)](https://vitejs.dev/)
   [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript)](https://www.typescriptlang.org/)
   [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss)](https://tailwindcss.com/)
+  [![Build Status](https://img.shields.io/badge/build-passing-brightgreen?logo=githubactions&logoColor=white)](https://github.com/max-63/OpenMDL/actions)
+  [![Downloads](https://img.shields.io/github/downloads/max-63/OpenMDL/total?color=blue&logo=github)](https://github.com/max-63/OpenMDL/releases)
   [![Platform](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows-green)](#téléchargements--installateurs)
   [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
   
@@ -108,10 +110,10 @@ Les paquets pré-compilés se trouvent dans le dossier `dist-installers/` :
 
 | Système d'exploitation | Format de paquet | Utilisation |
 | :--- | :--- | :--- |
-| **Linux Mint / Ubuntu / Debian** | `OpenMDL_1.0.9_amd64.deb` | Double-clic pour installer via la logithèque (gère automatiquement les dépendances) |
-| **Fedora / RedHat / openSUSE** | `OpenMDL-1.0.9-1.x86_64.rpm` | Installateur RPM natif |
-| **Toutes distributions Linux** | `OpenMDL_1.0.9_amd64.AppImage` | Fichier portable autonome : clic droit > Exécuter, aucune installation nécessaire |
-| **Windows 10 / 11** | `OpenMDL_1.0.9_x64-setup.exe` | Installateur Windows NSIS complet (avec raccourci Bureau et Menu Démarrer) |
+| **Linux Mint / Ubuntu / Debian** | `OpenMDL_1.0.10_amd64.deb` | Double-clic pour installer via la logithèque (gère automatiquement les dépendances) |
+| **Fedora / RedHat / openSUSE** | `OpenMDL-1.0.10-1.x86_64.rpm` | Installateur RPM natif |
+| **Toutes distributions Linux** | `OpenMDL_1.0.10_amd64.AppImage` | Fichier portable autonome : clic droit > Exécuter, aucune installation nécessaire |
+| **Windows 10 / 11** | `OpenMDL_1.0.10_x64-setup.exe` | Installateur Windows NSIS complet (avec raccourci Bureau et Menu Démarrer) |
 
 ---
 

@@ -2678,7 +2678,7 @@ class DatabaseService {
 
   public exportData(): Record<string, any> {
     return {
-      version: '1.0.8',
+      version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.9',
       exportDate: new Date().toISOString(),
       products: this.products,
       sales: this.sales,
