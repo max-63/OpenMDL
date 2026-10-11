@@ -1,295 +1,64 @@
-import { Product, Sale, Session, Volunteer, RestockLog, VolunteerPerk, ProductStockHistoryPoint, ProductStockEvolution, TpeSettings, TpePaymentLog, SnakeScore, PacmanScore, PerkSettings, PerkEligibilityRule, CashFloatSettings, SessionCashWithdrawal, EnrichedCashWithdrawal, EURO_DENOMINATIONS, decomposeCashAmount, AppProfile, DrawerCashState, ChatMessage, ChatChannel, ChatSettings, VolunteerThemeSettings, DatabaseEngine, DatabaseConnectionConfig } from '../types';
-import { computeCrc32Hex } from './binaryCodec';
+import type {
+  Product,
+  Sale,
+  Session,
+  Volunteer,
+  RestockLog,
+  VolunteerPerk,
+  ProductStockEvolution,
+  TpeSettings,
+  TpePaymentLog,
+  SnakeScore,
+  PacmanScore,
+  PerkSettings,
+  PerkEligibilityRule,
+  CashFloatSettings,
+  SessionCashWithdrawal,
+  EnrichedCashWithdrawal,
+  AppProfile,
+  DrawerCashState,
+  ChatMessage,
+  ChatChannel,
+  ChatSettings,
+  VolunteerThemeSettings,
+  DatabaseConnectionConfig
+} from '../types';
 
-const STORAGE_KEYS = {
-  PRODUCTS: 'openmdl_products',
-  SALES: 'openmdl_sales',
-  SESSIONS: 'openmdl_sessions',
-  ACTIVE_SESSION: 'openmdl_active_session',
-  VOLUNTEERS: 'openmdl_volunteers',
-  RESTOCKS: 'openmdl_restocks',
-  LOGS: 'openmdl_activity_logs',
-  THEME: 'openmdl_theme',
-  PERKS: 'openmdl_volunteer_perks',
-  PERK_SETTINGS: 'openmdl_perk_settings',
-  TPE_SETTINGS: 'openmdl_tpe_settings',
-  TPE_LOGS: 'openmdl_tpe_logs',
-  SNAKE_SCORES: 'openmdl_snake_scores',
-  PACMAN_SCORES: 'openmdl_pacman_scores',
-  CASH_FLOAT_SETTINGS: 'openmdl_cash_float_settings',
-  APP_PROFILE: 'openmdl_app_profile',
-  CHAT_MESSAGES: 'openmdl_chat_messages',
-  CHAT_CHANNELS: 'openmdl_chat_channels',
-  CHAT_SETTINGS: 'openmdl_chat_settings',
-  DATABASE_CONFIG: 'openmdl_database_config',
-  CHAT_READ_STATE: 'openmdl_chat_read_state'
+import {
+  computeCrc32Hex,
+  EURO_DENOMINATIONS,
+  decomposeCashAmount,
+  STORAGE_KEYS,
+  DEFAULT_DATABASE_CONFIG,
+  DEFAULT_CHAT_SETTINGS,
+  DEFAULT_PERK_SETTINGS,
+  DEFAULT_CASH_FLOAT_SETTINGS,
+  DEFAULT_TPE_SETTINGS,
+  INITIAL_PRODUCTS,
+  INITIAL_VOLUNTEERS,
+  DEMO_PRODUCTS,
+  type ActivityLog
+} from './db/constants.ts';
+
+import { storageService } from './db/storageService.ts';
+import { catalogService } from './db/catalogService.ts';
+import { cashService } from './db/cashService.ts';
+import { chatService } from './db/chatService.ts';
+import { perkService } from './db/perkService.ts';
+import { volunteerService } from './db/volunteerService.ts';
+import { backupService } from './db/backupService.ts';
+import { demoDataService } from './db/demoDataService.ts';
+
+export {
+  computeCrc32Hex,
+  DEFAULT_DATABASE_CONFIG,
+  DEFAULT_CHAT_SETTINGS,
+  DEFAULT_PERK_SETTINGS,
+  DEFAULT_CASH_FLOAT_SETTINGS,
+  type ActivityLog
 };
 
-export const DEFAULT_DATABASE_CONFIG: DatabaseConnectionConfig = {
-  engine: 'sqlite',
-  status: 'connected',
-  lastPing: 'Local (Intégré Tauri SQLite ultra-rapide)',
-  format: 'SQLite (.db / .mdlb)'
-};
-
-
-export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
-  enabled: true,
-  retentionDays: 30
-};
-
-
-export const DEFAULT_PERK_SETTINGS: PerkSettings = {
-  enabled: true,
-  rule: 'items_sold',
-  threshold: 10,
-  allowMultiplePerDay: false
-};
-
-export const DEFAULT_CASH_FLOAT_SETTINGS: CashFloatSettings = {
-  enabled: true,
-  autoCalculationEnabled: true,
-  baseCounts: {
-    '20': 1,
-    '10': 2,
-    '5': 4,
-    '2': 10,
-    '1': 20,
-    '0.50': 20,
-    '0.20': 20,
-    '0.10': 10
-  },
-  lastRemainingCounts: {},
-  carriedOverDifferences: {}
-};
-
-export interface ActivityLog {
-  id: string;
-  timestamp: string;
-  type: 'INFO' | 'SALE' | 'RESTOCK' | 'SESSION' | 'BACKUP' | 'WARNING' | 'SECURITY';
-  message: string;
-  author: string;
-}
-
-// Catalogue vierge par défaut (prêt pour la production et release)
-const INITIAL_PRODUCTS: Product[] = [];
-
-// Données d'exemples utilisées uniquement lors de l'activation du Mode Démo (Screenshots)
-const DEMO_PRODUCTS: Product[] = [
-  {
-    id: 'prod-1',
-    name: 'Kinder Bueno',
-    category: 'snacks',
-    price: 1.20,
-    costPrice: 0.70,
-    stock: 24,
-    minStockAlert: 8,
-    imageUrl: '/products/kinder_bueno.jpeg',
-    isActive: true
-  },
-  {
-    id: 'prod-2',
-    name: 'Coca-Cola 33cl',
-    category: 'boissons',
-    price: 1.00,
-    costPrice: 0.50,
-    stock: 36,
-    minStockAlert: 12,
-    imageUrl: '/products/coca.jpg',
-    isActive: true
-  },
-  {
-    id: 'prod-3',
-    name: 'Oasis Tropical 33cl',
-    category: 'boissons',
-    price: 1.00,
-    costPrice: 0.48,
-    stock: 18,
-    minStockAlert: 10,
-    imageUrl: '/products/oasis.webp',
-    isActive: true
-  },
-  {
-    id: 'prod-4',
-    name: 'Fuze Tea Pêche 33cl',
-    category: 'boissons',
-    price: 1.00,
-    costPrice: 0.49,
-    stock: 6,
-    minStockAlert: 10,
-    imageUrl: '/products/ice_tea.jpeg',
-    isActive: true
-  },
-  {
-    id: 'prod-5',
-    name: 'KitKat 4 barres',
-    category: 'snacks',
-    price: 1.00,
-    costPrice: 0.55,
-    stock: 15,
-    minStockAlert: 6,
-    imageUrl: '/products/kitkat.webp',
-    isActive: true
-  },
-  {
-    id: 'prod-6',
-    name: 'M&M\'s Peanut 45g',
-    category: 'bonbons',
-    price: 1.20,
-    costPrice: 0.65,
-    stock: 20,
-    minStockAlert: 8,
-    imageUrl: '/products/m&m.jpg',
-    isActive: true
-  },
-  {
-    id: 'prod-7',
-    name: 'Haribo Dragibus 40g',
-    category: 'bonbons',
-    price: 0.80,
-    costPrice: 0.40,
-    stock: 30,
-    minStockAlert: 10,
-    imageUrl: '/products/dragibus.webp',
-    isActive: true
-  },
-  {
-    id: 'prod-8',
-    name: 'Capri-Sun Multivitamin',
-    category: 'boissons',
-    price: 0.80,
-    costPrice: 0.35,
-    stock: 4,
-    minStockAlert: 12,
-    imageUrl: '/products/caprisun.jpg',
-    isActive: true
-  },
-  {
-    id: 'prod-9',
-    name: 'Café Expresso',
-    category: 'chaud',
-    price: 0.50,
-    costPrice: 0.15,
-    stock: 100,
-    minStockAlert: 20,
-    imageUrl: '/products/cafe-expresso.jpg',
-    isActive: true
-  },
-  {
-    id: 'prod-10',
-    name: 'Chocolat Chaud',
-    category: 'chaud',
-    price: 0.80,
-    costPrice: 0.25,
-    stock: 50,
-    minStockAlert: 15,
-    imageUrl: '/products/chocolat-chaud.jpg',
-    isActive: true
-  }
-];
-
-// Compte Administrateur unique pour application 100% vierge
-const INITIAL_VOLUNTEERS: Volunteer[] = [
-  {
-    id: 'vol-admin',
-    username: 'admin',
-    password: 'admin',
-    name: 'Administrateur',
-    role: 'Administrateur',
-    avatarColor: '#ea580c',
-    isAdmin: true,
-    isSuspended: false,
-    createdAt: new Date().toISOString()
-  }
-];
-
-// Utilisateurs d'exemple pour le mode démonstration et captures d'écran
-const DEMO_VOLUNTEERS: Volunteer[] = [
-  {
-    id: 'vol-admin',
-    username: 'admin',
-    password: 'admin',
-    name: 'Adrien (Responsable MDL)',
-    role: 'Administrateur',
-    avatarColor: '#ea580c',
-    isAdmin: true,
-    isSuspended: false,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'vol-2',
-    username: 'sarah',
-    password: 'password123',
-    name: 'Sarah L. (Trésorière)',
-    role: 'Bureau MDL',
-    avatarColor: '#8b5cf6',
-    isAdmin: true,
-    isSuspended: false,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'vol-3',
-    username: 'thomas',
-    password: 'password123',
-    name: 'Thomas M. (Bénévole)',
-    role: 'Permanence Foyer',
-    avatarColor: '#10b981',
-    isAdmin: false,
-    isSuspended: false,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'vol-4',
-    username: 'lucas',
-    password: 'password123',
-    name: 'Lucas D. (Bénévole)',
-    role: 'Permanence Foyer',
-    avatarColor: '#06b6d4',
-    isAdmin: false,
-    isSuspended: false,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'vol-5',
-    username: 'emma',
-    password: 'password123',
-    name: 'Emma R. (Secrétaire)',
-    role: 'Bureau MDL',
-    avatarColor: '#ec4899',
-    isAdmin: true,
-    isSuspended: false,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'vol-6',
-    username: 'hugo',
-    password: 'password123',
-    name: 'Hugo B. (Bénévole)',
-    role: 'Permanence Foyer',
-    avatarColor: '#f59e0b',
-    isAdmin: false,
-    isSuspended: false,
-    createdAt: new Date().toISOString()
-  }
-];
-
-const DEFAULT_TPE_SETTINGS: TpeSettings = {
-  isConnected: false,
-  readerModel: 'SumUp Solo',
-  readerName: 'SumUp Solo (Foyer MDL)',
-  serialNumber: 'SOLO-MDL-8492',
-  batteryLevel: 95,
-  merchantName: 'Maison des Lycéens (MDL)',
-  merchantEmail: '',
-  apiKey: '',
-  merchantCode: '',
-  readerId: '',
-  commissionRate: 1.75,
-  soundEnabled: true,
-  autoValidate: true
-};
-
-class DatabaseService {
+export class DatabaseService {
   private products: Product[] = [];
   private sales: Sale[] = [];
   private sessions: Session[] = [];
@@ -299,7 +68,7 @@ class DatabaseService {
   private volunteerPerks: VolunteerPerk[] = [];
   private perkSettings: PerkSettings = { ...DEFAULT_PERK_SETTINGS };
   private cashFloatSettings: CashFloatSettings = { ...DEFAULT_CASH_FLOAT_SETTINGS };
-  private tpeSettings: TpeSettings = DEFAULT_TPE_SETTINGS;
+  private tpeSettings: TpeSettings = { ...DEFAULT_TPE_SETTINGS };
   private tpeLogs: TpePaymentLog[] = [];
   private snakeScores: SnakeScore[] = [];
   private activeSession: Session | null = null;
@@ -309,7 +78,6 @@ class DatabaseService {
   private chatSettings: ChatSettings = { ...DEFAULT_CHAT_SETTINGS };
   private databaseConfig: DatabaseConnectionConfig = { ...DEFAULT_DATABASE_CONFIG };
   private listeners: Set<() => void> = new Set();
-  private loginAttempts: Map<string, { count: number; lockedUntil?: number }> = new Map();
 
   constructor() {
     this.loadAll();
@@ -324,41 +92,18 @@ class DatabaseService {
     this.listeners.forEach(fn => fn());
   }
 
-  private async persistToSqlite(key: string, value: string): Promise<void> {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('sqlite_set_key', { key, value });
-    } catch {
-      // Ignorer si Tauri non disponible (ex: environnement test ou web pur)
-    }
+  private onDbChanged(): void {
+    import('./syncService').then(m => m.syncService.notifyLocalDbChanged()).catch(() => {});
   }
 
-  private safeSetItem(key: string, value: string): void {
-    // 1. Persistance native SQLite prioritaire et permanente (sans limite de taille 5 Mo)
-    this.persistToSqlite(key, value);
-
-    // 2. Cache LocalStorage synchrone pour lecture instantanée
-    try {
-      localStorage.setItem(key, value);
-    } catch (err: any) {
-      if (err?.name === 'QuotaExceededError' || err?.code === 22 || err?.message?.includes('quota')) {
-        console.warn(`QuotaExceededError sur ${key} en LocalStorage (la base SQLite conserve déjà la donnée en sécurité), nettoyage d'urgence du cache LocalStorage...`);
-        this.cleanLocalStorageQuota();
-        try {
-          localStorage.setItem(key, value);
-        } catch {
-          // Si le cache LocalStorage sature malgré la purge, SQLite a déjà reçu la donnée !
-        }
-      } else {
-        throw err;
-      }
-    }
+  public cleanLocalStorageQuota(): void {
+    storageService.cleanLocalStorageQuota({
+      logs: this.logs,
+      tpeLogs: this.tpeLogs,
+      chatMessages: this.chatMessages
+    });
   }
 
-  /**
-   * Hydratation asynchrone depuis la base SQLite embarquée Tauri.
-   * Si SQLite contient des données, elles priment sur le cache LocalStorage.
-   */
   public async initSqlitePersistence(): Promise<void> {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
@@ -400,6 +145,12 @@ class DatabaseService {
             } else if (k === STORAGE_KEYS.CHAT_CHANNELS && v) {
               this.chatChannels = JSON.parse(v);
               changed = true;
+            } else if (k === STORAGE_KEYS.CHAT_MESSAGES && v) {
+              const msgs = JSON.parse(v);
+              if (Array.isArray(msgs) && msgs.length > 0) {
+                this.chatMessages = msgs;
+                changed = true;
+              }
             } else if (k === STORAGE_KEYS.APP_PROFILE && v) {
               localStorage.setItem(STORAGE_KEYS.APP_PROFILE, v);
               changed = true;
@@ -407,12 +158,26 @@ class DatabaseService {
           } catch {}
         }
 
-        // Charger aussi les messages de chat depuis la table relationnelle SQLite
         try {
           const sqliteChatMsgs = await invoke<ChatMessage[]>('sqlite_get_chat_messages', { channelId: null });
           if (sqliteChatMsgs && sqliteChatMsgs.length > 0) {
             this.chatMessages = sqliteChatMsgs;
             changed = true;
+          } else if (this.chatMessages.length > 0) {
+            for (const msg of this.chatMessages) {
+              await invoke('sqlite_save_chat_message', {
+                id: msg.id,
+                channelId: msg.channelId,
+                authorId: msg.authorId,
+                authorName: msg.authorName,
+                authorRole: msg.authorRole,
+                authorAvatarColor: msg.authorAvatarColor || null,
+                authorBubbleColor: msg.authorBubbleColor || null,
+                content: msg.content,
+                timestamp: msg.timestamp,
+                signature: msg.signature
+              }).catch(() => {});
+            }
           }
         } catch {}
 
@@ -420,7 +185,6 @@ class DatabaseService {
           this.notify();
         }
       } else {
-        // Premier démarrage avec base SQLite vierge : migrer les données actuelles vers SQLite
         this.saveProducts();
         this.saveSales();
         this.saveSessions();
@@ -431,77 +195,21 @@ class DatabaseService {
         this.saveTpeSettings();
         this.saveChatMessages();
       }
-    } catch {
-      // Environnement sans Tauri
-    }
-  }
-
-  /**
-   * Purge drastique des données non critiques en cas de saturation de quota LocalStorage
-   */
-  public cleanLocalStorageQuota(): void {
-    try {
-      // 1. Éliminer toutes les sauvegardes stockées en cache local (backup_data_*)
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && (k.startsWith('backup_data_') || k.startsWith('openmdl_temp_') || k.startsWith('temp_'))) {
-          keysToRemove.push(k);
-        }
-      }
-      keysToRemove.forEach(k => localStorage.removeItem(k));
-
-      // 2. Réduire l'index des sauvegardes à 10 max
-      const backupsListKey = 'openmdl_backups_index';
-      const storedBackups = localStorage.getItem(backupsListKey);
-      if (storedBackups) {
-        try {
-          const list = JSON.parse(storedBackups);
-          if (Array.isArray(list) && list.length > 10) {
-            localStorage.setItem(backupsListKey, JSON.stringify(list.slice(0, 10)));
-          }
-        } catch {}
-      }
-
-      // 3. Tronquer les logs d'activité à 100 max
-      if (this.logs && this.logs.length > 100) {
-        this.logs = this.logs.slice(0, 100);
-        try {
-          localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs));
-        } catch {}
-      }
-
-      // 4. Tronquer les logs TPE à 100 max
-      if (this.tpeLogs && this.tpeLogs.length > 100) {
-        this.tpeLogs = this.tpeLogs.slice(0, 100);
-        try {
-          localStorage.setItem(STORAGE_KEYS.TPE_LOGS, JSON.stringify(this.tpeLogs));
-        } catch {}
-      }
-
-      // 5. Tronquer les messages de chat (garder les 60 derniers) et supprimer les avatars base64
-      if (this.chatMessages && this.chatMessages.length > 60) {
-        this.chatMessages = this.chatMessages.slice(-60);
-      }
-      this.chatMessages.forEach(m => {
-        if (m.authorAvatarUrl) delete m.authorAvatarUrl;
-      });
-      try {
-        localStorage.setItem(STORAGE_KEYS.CHAT_MESSAGES, JSON.stringify(this.chatMessages));
-      } catch {}
-    } catch (e) {
-      console.error('Erreur lors du nettoyage d\'urgence de quota:', e);
-    }
+    } catch {}
   }
 
   private loadAll(): void {
-    // Nettoyage proactif au démarrage pour libérer immédiatement le quota
+    if (typeof localStorage === 'undefined') {
+      this.products = INITIAL_PRODUCTS;
+      this.volunteers = INITIAL_VOLUNTEERS;
+      return;
+    }
+
     this.cleanLocalStorageQuota();
     try {
       const storedProds = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
       this.products = storedProds ? JSON.parse(storedProds) : INITIAL_PRODUCTS;
 
-      // Migration automatique des images d'exemple vers les nouveaux fichiers locaux hors-ligne
       let prodsMigrated = false;
       this.products = this.products.map(p => {
         const match = DEMO_PRODUCTS.find(dp => dp.id === p.id || dp.name.trim().toLowerCase() === p.name.trim().toLowerCase());
@@ -527,8 +235,6 @@ class DatabaseService {
       const storedVolunteers = localStorage.getItem(STORAGE_KEYS.VOLUNTEERS);
       let parsedVolunteers: Volunteer[] = storedVolunteers ? JSON.parse(storedVolunteers) : INITIAL_VOLUNTEERS;
 
-      // Migration & normalisation automatique des utilisateurs :
-      // Garantir impérativement la présence du compte administrateur initial 'admin' / 'admin'
       const adminExists = parsedVolunteers.some(v => v.username === 'admin');
       if (!adminExists) {
         parsedVolunteers.unshift({
@@ -596,7 +302,6 @@ class DatabaseService {
       if (storedPacman) {
         try {
           const parsed = JSON.parse(storedPacman);
-          // Éliminer tous les faux scores de démonstration inventés
           const fakeNames = ['jérémy', 'jeremy', 'thomas m.', 'thomas'];
           this.snakeScores = Array.isArray(parsed)
             ? parsed.filter((s: any) =>
@@ -625,7 +330,6 @@ class DatabaseService {
         }
       }
 
-      // Initialisation Chat : Messages, Canaux, Réglages
       const storedChatSettings = localStorage.getItem(STORAGE_KEYS.CHAT_SETTINGS);
       if (storedChatSettings) {
         try {
@@ -643,7 +347,7 @@ class DatabaseService {
           this.chatChannels = [];
         }
       }
-      // Canaux de base obligatoires : all (Général) et admins (Vie Scolaire & Admins)
+
       if (!this.chatChannels.some(c => c.id === 'all')) {
         this.chatChannels.unshift({
           id: 'all',
@@ -679,7 +383,6 @@ class DatabaseService {
       if (storedMessages) {
         try {
           const rawMessages: ChatMessage[] = JSON.parse(storedMessages);
-          // Nettoyage immédiat anti-QuotaExceededError : retirer les lourds Base64 des messages stockés
           this.chatMessages = rawMessages.map(m => {
             if (m.authorAvatarUrl && m.authorAvatarUrl.startsWith('data:')) {
               const { authorAvatarUrl, ...rest } = m;
@@ -691,9 +394,11 @@ class DatabaseService {
           this.chatMessages = [];
         }
       }
-      // Appliquer la rétention (ex: suppression des messages plus vieux que X jours)
-      this.purgeExpiredChatMessages();
-      this.saveChatMessages();
+
+      const purged = this.purgeExpiredChatMessages();
+      if (purged > 0 || this.chatMessages.length > 0) {
+        this.saveChatMessages();
+      }
 
       this.saveProducts();
       this.saveVolunteers();
@@ -703,54 +408,62 @@ class DatabaseService {
       this.volunteers = INITIAL_VOLUNTEERS;
     }
   }
-  private onDbChanged(): void {
-    import('./syncService').then(m => m.syncService.notifyLocalDbChanged()).catch(() => { });
-  }
 
+  // --- Sauvegardes & Persistances ---
   public saveProducts(): void {
-    this.safeSetItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(this.products));
+    storageService.safeSetItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(this.products), () => this.cleanLocalStorageQuota());
     this.onDbChanged();
   }
 
   public saveSales(): void {
-    this.safeSetItem(STORAGE_KEYS.SALES, JSON.stringify(this.sales));
+    storageService.safeSetItem(STORAGE_KEYS.SALES, JSON.stringify(this.sales), () => this.cleanLocalStorageQuota());
     this.onDbChanged();
   }
 
   public saveSessions(): void {
-    this.safeSetItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions));
+    storageService.safeSetItem(STORAGE_KEYS.SESSIONS, JSON.stringify(this.sessions), () => this.cleanLocalStorageQuota());
     this.onDbChanged();
   }
 
   public saveVolunteers(): void {
-    this.safeSetItem(STORAGE_KEYS.VOLUNTEERS, JSON.stringify(this.volunteers));
-    this.onDbChanged();
+    volunteerService.saveVolunteers(this.volunteers, (k, v) => storageService.safeSetItem(k, v, () => this.cleanLocalStorageQuota()));
   }
 
   public saveRestocks(): void {
-    this.safeSetItem(STORAGE_KEYS.RESTOCKS, JSON.stringify(this.restocks));
-    this.onDbChanged();
+    storageService.safeSetItem(STORAGE_KEYS.RESTOCKS, JSON.stringify(this.restocks), () => this.cleanLocalStorageQuota());
   }
 
   public saveLogs(): void {
-    this.safeSetItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs));
+    storageService.safeSetItem(STORAGE_KEYS.LOGS, JSON.stringify(this.logs), () => this.cleanLocalStorageQuota());
   }
 
   public savePerkSettings(): void {
-    this.safeSetItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
+    storageService.safeSetItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings), () => this.cleanLocalStorageQuota());
   }
 
   public saveCashFloatSettings(): void {
-    this.safeSetItem(STORAGE_KEYS.CASH_FLOAT_SETTINGS, JSON.stringify(this.cashFloatSettings));
-    this.onDbChanged();
+    storageService.safeSetItem(STORAGE_KEYS.CASH_FLOAT_SETTINGS, JSON.stringify(this.cashFloatSettings), () => this.cleanLocalStorageQuota());
   }
 
   public saveTpeSettings(): void {
-    this.safeSetItem(STORAGE_KEYS.TPE_SETTINGS, JSON.stringify(this.tpeSettings));
+    storageService.safeSetItem(STORAGE_KEYS.TPE_SETTINGS, JSON.stringify(this.tpeSettings), () => this.cleanLocalStorageQuota());
   }
 
   public saveTpeLogs(): void {
-    this.safeSetItem(STORAGE_KEYS.TPE_LOGS, JSON.stringify(this.tpeLogs));
+    storageService.safeSetItem(STORAGE_KEYS.TPE_LOGS, JSON.stringify(this.tpeLogs), () => this.cleanLocalStorageQuota());
+  }
+
+  public saveChatMessages(): void {
+    chatService.saveChatMessages(this.chatMessages);
+  }
+
+  public saveChatChannels(): void {
+    chatService.saveChatChannels(this.chatChannels);
+  }
+
+  private saveSnakeScores(): void {
+    localStorage.setItem(STORAGE_KEYS.SNAKE_SCORES, JSON.stringify(this.snakeScores));
+    localStorage.setItem(STORAGE_KEYS.PACMAN_SCORES, JSON.stringify(this.snakeScores));
   }
 
   public logActivity(type: ActivityLog['type'], message: string): void {
@@ -768,9 +481,9 @@ class DatabaseService {
     console.log(`[${logItem.type}] ${logItem.timestamp} - ${logItem.author}: ${logItem.message}`);
   }
 
-  // --- Authentification & Session ---
+  // --- Bénévoles & Authentification ---
   public getVolunteers(): Volunteer[] {
-    return [...this.volunteers];
+    return volunteerService.getVolunteers(this.volunteers);
   }
 
   public getCurrentVolunteer(): Volunteer | null {
@@ -781,13 +494,13 @@ class DatabaseService {
     return this.activeSession;
   }
 
-  public login(volunteerId: string): boolean {
-    const volunteer = this.volunteers.find(v => v.id === volunteerId);
+  public login(volunteerIdOrUsername: string): boolean {
+    const clean = volunteerIdOrUsername.trim().toLowerCase();
+    const volunteer = this.volunteers.find(v => v.id === volunteerIdOrUsername || v.username.toLowerCase() === clean);
     if (!volunteer || volunteer.isSuspended) return false;
 
     this.currentVolunteer = volunteer;
 
-    // Créer ou reprendre la session
     if (!this.activeSession || this.activeSession.status !== 'active') {
       this.activeSession = {
         id: 'sess-' + Date.now(),
@@ -800,7 +513,7 @@ class DatabaseService {
         salesCount: 0,
         status: 'active'
       };
-      localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
+      storageService.safeSetItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
       this.logActivity('SESSION', `Ouverture de permanence par ${volunteer.name}`);
       (window as any).OpenMDL?.events.emit('session:opened', this.activeSession);
     } else {
@@ -812,63 +525,13 @@ class DatabaseService {
   }
 
   public authenticate(username: string, password: string): { success: boolean; message: string; volunteer?: Volunteer } {
-    const cleanUsername = username.trim().toLowerCase();
-    const cleanPassword = password.trim();
-
-    if (!cleanUsername || !cleanPassword) {
-      return { success: false, message: 'Veuillez renseigner votre identifiant et votre mot de passe' };
-    }
-
-    // Protection anti force-brute (blocage 30s après 5 échecs consécutifs)
-    const now = Date.now();
-    const attempt = this.loginAttempts.get(cleanUsername);
-    if (attempt && attempt.lockedUntil && attempt.lockedUntil > now) {
-      const waitSeconds = Math.ceil((attempt.lockedUntil - now) / 1000);
-      return {
-        success: false,
-        message: `Compte temporairement verrouillé suite à trop de tentatives infructueuses. Réessayez dans ${waitSeconds} secondes.`
-      };
-    }
-
-    const volunteer = this.volunteers.find(v => v.username.toLowerCase() === cleanUsername);
-    if (!volunteer) {
-      return { success: false, message: 'Identifiant introuvable. Demandez la création de votre compte à un administrateur.' };
-    }
-
-    if (volunteer.isSuspended) {
-      return { success: false, message: 'Ce compte est actuellement suspendu. Contactez un administrateur.' };
-    }
-
-    if (volunteer.password !== cleanPassword) {
-      const currentCount = (attempt?.count || 0) + 1;
-      if (currentCount >= 5) {
-        this.loginAttempts.set(cleanUsername, {
-          count: currentCount,
-          lockedUntil: now + 30_000
-        });
-        this.logActivity('SECURITY', `Compte ${cleanUsername} verrouillé pendant 30s après 5 échecs consécutifs.`);
-        return {
-          success: false,
-          message: 'Trop de tentatives échouées. Votre compte est bloqué pendant 30 secondes par sécurité.'
-        };
-      } else {
-        this.loginAttempts.set(cleanUsername, { count: currentCount });
-        return {
-          success: false,
-          message: `Mot de passe incorrect. (${5 - currentCount} tentative(s) restante(s))`
-        };
-      }
-    }
-
-    // Réinitialisation du compteur après connexion réussie
-    this.loginAttempts.delete(cleanUsername);
-
-    const loginOk = this.login(volunteer.id);
-    if (!loginOk) {
-      return { success: false, message: 'Impossible d\'ouvrir la session pour cet utilisateur.' };
-    }
-
-    return { success: true, message: 'Connexion réussie', volunteer };
+    return volunteerService.authenticate(
+      this.volunteers,
+      username,
+      password,
+      id => this.login(id),
+      msg => this.logActivity('SECURITY', msg)
+    );
   }
 
   public createUser(userData: {
@@ -878,151 +541,524 @@ class DatabaseService {
     role?: string;
     isAdmin?: boolean;
   }): { success: boolean; message: string; volunteer?: Volunteer } {
-    const cleanUsername = userData.username.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
-    const cleanPassword = userData.password.trim();
-    const cleanName = userData.name.trim();
-
-    if (!cleanUsername) {
-      return { success: false, message: "L'identifiant d'utilisateur ne peut pas être vide" };
+    const res = volunteerService.createUser(this.volunteers, userData);
+    if (res.success && res.volunteer) {
+      this.saveVolunteers();
+      this.logActivity('INFO', `Création du compte @${res.volunteer.username} (${res.volunteer.name}) par ${this.currentVolunteer?.name || 'Admin'}`);
+      this.notify();
     }
-    if (cleanPassword.length < 2) {
-      return { success: false, message: 'Le mot de passe doit contenir au moins 2 caractères' };
-    }
-    if (!cleanName) {
-      return { success: false, message: 'Le nom de la personne est obligatoire' };
-    }
-
-    const exists = this.volunteers.some(v => v.username.toLowerCase() === cleanUsername);
-    if (exists) {
-      return { success: false, message: `L'identifiant "@${cleanUsername}" est déjà utilisé par un autre compte.` };
-    }
-
-    const colors = ['#ea580c', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#6366f1'];
-    const randomColor = colors[Math.floor(Math.random() * colors.length)];
-
-    const newVolunteer: Volunteer = {
-      id: 'vol-' + Date.now(),
-      username: cleanUsername,
-      password: cleanPassword,
-      name: cleanName,
-      role: userData.role?.trim() || (userData.isAdmin ? 'Administrateur' : 'Bénévole Permanence'),
-      avatarColor: randomColor,
-      isAdmin: !!userData.isAdmin,
-      isSuspended: false,
-      createdAt: new Date().toISOString()
-    };
-
-    this.volunteers.push(newVolunteer);
-    this.saveVolunteers();
-    this.logActivity('INFO', `Création du compte @${cleanUsername} (${cleanName}) par ${this.currentVolunteer?.name || 'Admin'}`);
-    this.notify();
-
-    return { success: true, message: `Compte @${cleanUsername} créé avec succès pour ${cleanName}`, volunteer: newVolunteer };
+    return res;
   }
 
   public toggleSuspendUser(volunteerId: string): { success: boolean; message: string } {
-    const user = this.volunteers.find(v => v.id === volunteerId);
-    if (!user) return { success: false, message: 'Utilisateur introuvable' };
-
-    if (user.id === this.currentVolunteer?.id) {
-      return { success: false, message: 'Action impossible : vous ne pouvez pas suspendre votre propre compte connecté' };
+    const res = volunteerService.toggleSuspendUser(this.volunteers, this.currentVolunteer?.id, volunteerId);
+    if (res.success && res.user) {
+      this.saveVolunteers();
+      const action = res.user.isSuspended ? 'suspendu' : 'réactivé';
+      this.logActivity('WARNING', `Compte @${res.user.username} (${res.user.name}) ${action} par ${this.currentVolunteer?.name || 'Admin'}`);
+      this.notify();
     }
-
-    if (user.isAdmin && !user.isSuspended) {
-      const activeAdmins = this.volunteers.filter(v => v.isAdmin && !v.isSuspended && v.id !== user.id);
-      if (activeAdmins.length === 0) {
-        return { success: false, message: 'Action impossible : il doit rester au moins un délégué administrateur actif' };
-      }
-    }
-
-    user.isSuspended = !user.isSuspended;
-    this.saveVolunteers();
-    const action = user.isSuspended ? 'suspendu' : 'réactivé';
-    this.logActivity('WARNING', `Compte @${user.username} (${user.name}) ${action} par ${this.currentVolunteer?.name || 'Admin'}`);
-    this.notify();
-
-    return { success: true, message: `Le compte @${user.username} a été ${action}` };
+    return res;
   }
 
   public deleteUser(volunteerId: string): { success: boolean; message: string } {
-    const index = this.volunteers.findIndex(v => v.id === volunteerId);
-    if (index === -1) return { success: false, message: 'Utilisateur introuvable' };
-
-    const user = this.volunteers[index];
-
-    if (user.id === this.currentVolunteer?.id) {
-      return { success: false, message: 'Action impossible : vous ne pouvez pas supprimer votre propre compte actuellement connecté' };
+    const res = volunteerService.deleteUser(this.volunteers, this.currentVolunteer?.id, volunteerId);
+    if (res.success && res.deletedUser) {
+      this.saveVolunteers();
+      this.logActivity('WARNING', `Suppression du compte @${res.deletedUser.username} (${res.deletedUser.name}) par ${this.currentVolunteer?.name || 'Admin'}`);
+      this.notify();
     }
-
-    if (user.isAdmin) {
-      const otherAdmins = this.volunteers.filter(v => v.isAdmin && v.id !== user.id);
-      if (otherAdmins.length === 0) {
-        return { success: false, message: 'Action impossible : vous ne pouvez pas supprimer le dernier compte administrateur' };
-      }
-    }
-
-    this.volunteers.splice(index, 1);
-    this.saveVolunteers();
-    this.logActivity('WARNING', `Suppression du compte @${user.username} (${user.name}) par ${this.currentVolunteer?.name || 'Admin'}`);
-    this.notify();
-
-    return { success: true, message: `Compte @${user.username} supprimé définitivement` };
+    return res;
   }
 
   public resetUserPassword(volunteerId: string, newPass: string): { success: boolean; message: string } {
-    const user = this.volunteers.find(v => v.id === volunteerId);
-    if (!user) return { success: false, message: 'Utilisateur introuvable' };
-
-    const cleanPass = newPass.trim();
-    if (cleanPass.length < 2) {
-      return { success: false, message: 'Le nouveau mot de passe doit contenir au moins 2 caractères' };
+    const res = volunteerService.resetUserPassword(this.volunteers, volunteerId, newPass);
+    if (res.success && res.user) {
+      this.saveVolunteers();
+      this.logActivity('INFO', `Mot de passe réinitialisé pour @${res.user.username} par ${this.currentVolunteer?.name || 'Admin'}`);
+      this.notify();
     }
-
-    user.password = cleanPass;
-    this.saveVolunteers();
-    this.logActivity('INFO', `Mot de passe réinitialisé pour @${user.username} par ${this.currentVolunteer?.name || 'Admin'}`);
-    this.notify();
-
-    return { success: true, message: `Mot de passe mis à jour pour @${user.username}` };
+    return res;
   }
 
   public updateUserName(volunteerId: string, newName: string): { success: boolean; message: string } {
-    const user = this.volunteers.find(v => v.id === volunteerId);
-    if (!user) return { success: false, message: 'Utilisateur introuvable' };
-
-    const cleanName = newName.trim();
-    if (cleanName.length < 2) {
-      return { success: false, message: 'Le nom doit contenir au moins 2 caractères' };
-    }
-
-    const oldName = user.name;
-    user.name = cleanName;
-    this.saveVolunteers();
-
-    // Mettre à jour immédiatement tous les scores Pacman existants associés
-    let updatedCount = 0;
-    this.snakeScores.forEach(s => {
-      if (s.volunteerId === user.id || s.playerName === oldName) {
-        s.volunteerId = user.id;
-        s.playerName = cleanName;
-        updatedCount++;
-      }
-    });
-    if (updatedCount > 0) {
+    const res = volunteerService.updateUserName(this.volunteers, this.snakeScores, volunteerId, newName);
+    if (res.success && res.user) {
+      this.saveVolunteers();
       this.saveSnakeScores();
+      if (this.currentVolunteer?.id === res.user.id) {
+        this.currentVolunteer.name = res.user.name;
+      }
+      this.logActivity('INFO', `Nom de @${res.user.username} modifié en "${res.user.name}"`);
+      this.notify();
     }
-
-    if (this.currentVolunteer?.id === user.id) {
-      this.currentVolunteer.name = cleanName;
-    }
-
-    this.logActivity('INFO', `Nom de @${user.username} modifié en "${cleanName}"`);
-    this.notify();
-
-    return { success: true, message: `Nom mis à jour en "${cleanName}"` };
+    return res;
   }
 
-  // --- Gestion du TPE SumUp ---
+  public updateVolunteerAvatar(volunteerId: string, avatarUrl: string): { success: boolean; message: string } {
+    const volunteer = this.volunteers.find(v => v.id === volunteerId);
+    if (!volunteer) return { success: false, message: 'Utilisateur introuvable' };
+
+    volunteer.avatarUrl = avatarUrl;
+    if (this.currentVolunteer?.id === volunteerId) {
+      this.currentVolunteer.avatarUrl = avatarUrl;
+    }
+
+    this.saveVolunteers();
+    this.logActivity('INFO', `Photo de profil mise à jour pour @${volunteer.username}`);
+    this.notify();
+    return { success: true, message: 'Photo de profil enregistrée avec succès' };
+  }
+
+  public updateVolunteerThemeSettings(volunteerId: string, settings: VolunteerThemeSettings): { success: boolean; message: string } {
+    const volunteer = this.volunteers.find(v => v.id === volunteerId);
+    if (!volunteer) return { success: false, message: 'Utilisateur introuvable' };
+
+    volunteer.themeSettings = {
+      ...(volunteer.themeSettings || {}),
+      ...settings
+    };
+
+    if (this.currentVolunteer?.id === volunteerId) {
+      this.currentVolunteer.themeSettings = volunteer.themeSettings;
+    }
+
+    this.saveVolunteers();
+    this.notify();
+    return { success: true, message: 'Préférences d\'affichage du chat enregistrées' };
+  }
+
+  public logout(): void {
+    const volName = this.currentVolunteer?.name || 'Inconnu';
+    this.createAutomaticBackup(`logout_${volName.replace(/[^a-zA-Z0-9]/g, '_')}`);
+    this.logActivity('INFO', `Déconnexion de ${volName}`);
+    this.currentVolunteer = null;
+    this.notify();
+  }
+
+  // --- Sessions & Permanence ---
+  public saveActiveSession(): void {
+    if (this.activeSession) {
+      storageService.safeSetItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    }
+  }
+
+  public saveSessionDraft(draftNotes: string, draftPerkProductId?: string, draftCashCounts?: Record<string, number>): void {
+    if (!this.activeSession) return;
+    this.activeSession.draftNotes = draftNotes;
+    this.activeSession.draftPerkProductId = draftPerkProductId;
+    if (draftCashCounts) {
+      this.activeSession.draftCashCounts = { ...draftCashCounts };
+    }
+    this.saveActiveSession();
+  }
+
+  public clearSessionDraft(): void {
+    if (!this.activeSession) return;
+    delete this.activeSession.draftNotes;
+    delete this.activeSession.draftPerkProductId;
+    delete this.activeSession.draftCashCounts;
+    this.saveActiveSession();
+  }
+
+  public closeSession(
+    incidentNotes: string,
+    perkProductId?: string,
+    cashWithdrawal?: SessionCashWithdrawal
+  ): { session: Session; backupName: string; perkResult?: { success: boolean; message: string } } {
+    if (!this.activeSession) {
+      throw new Error('Aucune séance active à clôturer');
+    }
+
+    let perkResult: { success: boolean; message: string } | undefined;
+    if (perkProductId) {
+      perkResult = this.claimVolunteerPerk(this.activeSession.volunteerId, perkProductId, this.activeSession.id);
+    }
+
+    this.activeSession.endTime = new Date().toISOString();
+    this.activeSession.status = 'closed';
+    this.activeSession.incidentNotes = incidentNotes.trim();
+
+    if (cashWithdrawal) {
+      this.activeSession.cashWithdrawal = cashWithdrawal;
+
+      const newLastRemainingCounts: Record<string, number> = {};
+      const newCarriedOverDifferences: Record<string, number> = {};
+
+      for (const item of cashWithdrawal.items) {
+        newLastRemainingCounts[item.id] = item.remainingCount;
+        const diff = item.remainingCount - item.baseCount;
+        if (diff !== 0) {
+          newCarriedOverDifferences[item.id] = diff;
+        }
+      }
+
+      this.cashFloatSettings.lastRemainingCounts = newLastRemainingCounts;
+      this.cashFloatSettings.carriedOverDifferences = newCarriedOverDifferences;
+      this.saveCashFloatSettings();
+    }
+
+    delete this.activeSession.draftNotes;
+    delete this.activeSession.draftPerkProductId;
+    delete this.activeSession.draftCashCounts;
+
+    this.sessions.unshift({ ...this.activeSession });
+    this.saveSessions();
+
+    const closedSession = { ...this.activeSession };
+    const volName = this.activeSession.volunteerName;
+
+    const withdrawalLog = cashWithdrawal
+      ? ` - Décaisse: ${cashWithdrawal.totalWithdrawn.toFixed(2)}€ (Fond restant: ${cashWithdrawal.totalRemainingFloat.toFixed(2)}€, Écart: ${cashWithdrawal.cashDiscrepancy >= 0 ? '+' : ''}${cashWithdrawal.cashDiscrepancy.toFixed(2)}€)`
+      : '';
+
+    this.logActivity('SESSION', `Clôture séance par ${volName}. Ventes: ${closedSession.totalSales.toFixed(2)}€ (${closedSession.salesCount} ventes). Notes: ${incidentNotes || 'Aucun incident'}${perkResult?.success ? ` - Conso offerte: ${perkResult.message}` : ''}${withdrawalLog}`);
+
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupName = `openmdl_cloture_${dateStr}.mdlb`;
+    this.createAutomaticBackup(`cloture_${dateStr}`);
+
+    this.activeSession = null;
+    this.currentVolunteer = null;
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+
+    (window as any).OpenMDL?.events.emit('session:closed', closedSession);
+
+    import('./syncService').then(m => {
+      const cfg = m.syncService.getConfig();
+      if (cfg.mode === 'usb' && cfg.usb.autoSyncOnClose && cfg.usb.filePath) {
+        m.syncService.exportToUsbFile();
+      }
+    }).catch(() => {});
+
+    this.notify();
+    return { session: closedSession, backupName, perkResult };
+  }
+
+  public getSessions(): Session[] {
+    return [...this.sessions];
+  }
+
+  // --- Sauvegardes ---
+  public createAutomaticBackup(tag: string): string {
+    const fileName = backupService.createAutomaticBackup(tag, () => this.exportData(), {
+      sales: this.sales.length,
+      products: this.products.length
+    });
+    this.logActivity('BACKUP', `Sauvegarde automatique créée: ${fileName}`);
+    return fileName;
+  }
+
+  public getBackupsList(): Array<{ fileName: string; date: string; salesCount: number; productsCount: number }> {
+    return backupService.getBackupsList();
+  }
+
+  // --- Produits & Catalogue ---
+  public getProducts(): Product[] {
+    return [...this.products];
+  }
+
+  public getProductById(id: string): Product | undefined {
+    return this.products.find(p => p.id === id);
+  }
+
+  public updateProduct(updated: Product): void {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      this.logActivity('WARNING', `Accès refusé : tentative de modification du catalogue/tarifs par @${this.currentVolunteer.username}`);
+      return;
+    }
+    const index = this.products.findIndex(p => p.id === updated.id);
+    if (index !== -1) {
+      const old = this.products[index];
+      this.products[index] = { ...updated };
+      this.saveProducts();
+      this.logActivity('INFO', `Mise à jour produit "${updated.name}" (Prix: ${old.price}€ -> ${updated.price}€, Stock: ${updated.stock})`);
+      this.notify();
+    }
+  }
+
+  public addProduct(product: Omit<Product, 'id'>): Product {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      this.logActivity('WARNING', `Accès refusé : tentative de création de produit par @${this.currentVolunteer.username}`);
+      return { ...product, id: 'unauthorized' };
+    }
+    const newProduct: Product = {
+      ...product,
+      id: 'prod-' + Date.now()
+    };
+    this.products.push(newProduct);
+    this.saveProducts();
+    this.logActivity('INFO', `Création nouveau produit "${newProduct.name}" (Prix: ${newProduct.price}€)`);
+    this.notify();
+    return newProduct;
+  }
+
+  public deleteProduct(id: string): void {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      this.logActivity('WARNING', `Accès refusé : tentative de suppression de produit par @${this.currentVolunteer.username}`);
+      return;
+    }
+    const prod = this.products.find(p => p.id === id);
+    if (prod) {
+      this.products = this.products.filter(p => p.id !== id);
+      this.saveProducts();
+      this.logActivity('WARNING', `Suppression du produit "${prod.name}"`);
+      this.notify();
+    }
+  }
+
+  public applyRestock(productId: string, quantityToAdd: number, newPrice?: number, costPrice?: number): void {
+    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+      this.logActivity('WARNING', `Accès refusé : tentative de restock par @${this.currentVolunteer.username}`);
+      return;
+    }
+    const prod = this.products.find(p => p.id === productId);
+    if (!prod) return;
+
+    const previousStock = prod.stock;
+    prod.stock += quantityToAdd;
+    if (newPrice !== undefined && newPrice > 0) {
+      prod.price = newPrice;
+    }
+    if (costPrice !== undefined && costPrice > 0) {
+      prod.costPrice = costPrice;
+    }
+
+    const restockLog: RestockLog = {
+      id: 'restock-' + Date.now(),
+      productId: prod.id,
+      productName: prod.name,
+      quantityAdded: quantityToAdd,
+      previousStock,
+      newStock: prod.stock,
+      newPrice: prod.price,
+      costPrice: prod.costPrice,
+      timestamp: new Date().toISOString(),
+      volunteerName: this.currentVolunteer?.name || 'Inconnu'
+    };
+
+    this.restocks.unshift(restockLog);
+    this.saveRestocks();
+    this.saveProducts();
+
+    this.logActivity('RESTOCK', `Restock +${quantityToAdd} sur "${prod.name}" (Stock: ${previousStock} -> ${prod.stock})`);
+    this.notify();
+  }
+
+  public getRestocks(): RestockLog[] {
+    return [...this.restocks];
+  }
+
+  // --- Ventes ---
+  public recordSale(saleData: Omit<Sale, 'id' | 'timestamp' | 'volunteerId' | 'volunteerName' | 'sessionId'>): Sale {
+    const volunteer = this.currentVolunteer || { id: 'unknown', name: 'Bénévole' };
+    const sessionId = this.activeSession?.id || 'default-session';
+
+    const sale: Sale = {
+      id: 'sale-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      timestamp: new Date().toISOString(),
+      volunteerId: volunteer.id,
+      volunteerName: volunteer.name,
+      sessionId,
+      ...saleData
+    };
+
+    for (const item of sale.items) {
+      const prod = this.products.find(p => p.id === item.productId);
+      if (prod) {
+        prod.stock = Math.max(0, prod.stock - item.quantity);
+      }
+    }
+    this.saveProducts();
+
+    this.sales.unshift(sale);
+    this.saveSales();
+
+    if (this.activeSession) {
+      this.activeSession.totalSales += sale.totalAmount;
+      this.activeSession.salesCount += 1;
+      if (sale.paymentMethod === 'especes') {
+        this.activeSession.totalCash += sale.totalAmount;
+
+        if (!this.activeSession.draftCashCounts) {
+          this.activeSession.draftCashCounts = {};
+        }
+        const givenBreakdown = sale.cashBreakdown?.given || decomposeCashAmount(sale.cashReceived || sale.totalAmount);
+        for (const [denomId, count] of Object.entries(givenBreakdown)) {
+          if (count > 0) {
+            this.activeSession.draftCashCounts[denomId] = (this.activeSession.draftCashCounts[denomId] || 0) + count;
+          }
+        }
+        if (sale.cashBreakdown?.returned) {
+          for (const [denomId, count] of Object.entries(sale.cashBreakdown.returned)) {
+            if (count > 0) {
+              this.activeSession.draftCashCounts[denomId] = Math.max(0, (this.activeSession.draftCashCounts[denomId] || 0) - count);
+            }
+          }
+        }
+      } else {
+        this.activeSession.totalTpe += sale.totalAmount;
+      }
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
+    }
+
+    const itemsSummary = sale.items.map(i => `${i.quantity}x ${i.productName}`).join(', ');
+    this.logActivity('SALE', `Vente encaissée (${sale.paymentMethod.toUpperCase()}): ${sale.totalAmount.toFixed(2)}€ [${itemsSummary}]`);
+
+    (window as any).OpenMDL?.events.emit('sale:completed', sale);
+
+    this.notify();
+    return sale;
+  }
+
+  public getSales(): Sale[] {
+    return [...this.sales];
+  }
+
+  public getLogs(): ActivityLog[] {
+    return [...this.logs];
+  }
+
+  // --- Consommations Offertes (Perks) ---
+  public getPerkSettings(): PerkSettings {
+    return { ...this.perkSettings };
+  }
+
+  public updatePerkSettings(updates: Partial<PerkSettings>): void {
+    this.perkSettings = { ...this.perkSettings, ...updates };
+    localStorage.setItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
+    const statusTxt = this.perkSettings.enabled ? 'Activée' : 'Désactivée';
+    const ruleTxt = this.perkSettings.rule === 'items_sold'
+      ? `${this.perkSettings.threshold} articles vendus`
+      : this.perkSettings.rule === 'sales_count'
+        ? `${this.perkSettings.threshold} ventes`
+        : 'Toujours offerte';
+    this.logActivity('INFO', `Règles de collation bénévole mises à jour (${statusTxt}, règle: ${ruleTxt})`);
+    this.notify();
+  }
+
+  public getVolunteerPerks(): VolunteerPerk[] {
+    return [...this.volunteerPerks];
+  }
+
+  public getSessionSalesCount(sessionId?: string): number {
+    return perkService.getSessionSalesCount(this.sales, sessionId || this.activeSession?.id);
+  }
+
+  public getSessionItemsSoldCount(sessionId?: string): number {
+    return perkService.getSessionItemsSoldCount(this.sales, sessionId || this.activeSession?.id);
+  }
+
+  public getTodaySalesForVolunteer(volunteerId: string): number {
+    return perkService.getTodaySalesForVolunteer(this.sales, volunteerId);
+  }
+
+  public getTodayItemsSoldForVolunteer(volunteerId: string): number {
+    return perkService.getTodayItemsSoldForVolunteer(this.sales, volunteerId);
+  }
+
+  public hasVolunteerClaimedPerkToday(volunteerId: string): boolean {
+    return perkService.hasVolunteerClaimedPerkToday(this.volunteerPerks, volunteerId);
+  }
+
+  public canClaimVolunteerPerk(volunteerId: string, sessionId?: string): {
+    allowed: boolean;
+    reason?: string;
+    salesToday: number;
+    requiredSales: number;
+    current: number;
+    required: number;
+    rule: PerkEligibilityRule;
+    enabled: boolean;
+  } {
+    return perkService.canClaimVolunteerPerk(
+      this.perkSettings,
+      this.sales,
+      this.volunteerPerks,
+      volunteerId,
+      sessionId || this.activeSession?.id
+    );
+  }
+
+  public claimVolunteerPerk(volunteerId: string, productId: string, sessionId?: string): { success: boolean; message: string; perk?: VolunteerPerk } {
+    const res = perkService.claimVolunteerPerk(
+      this.perkSettings,
+      this.sales,
+      this.volunteerPerks,
+      this.products,
+      this.volunteers,
+      this.currentVolunteer,
+      volunteerId,
+      productId,
+      sessionId || this.activeSession?.id
+    );
+    if (res.success && res.perk) {
+      this.saveProducts();
+      this.logActivity('INFO', `Conso offerte bénévole : "${res.perk.productName}" attribuée à ${res.perk.volunteerName} (Coût foyer : ${res.perk.costPrice.toFixed(2)}€)`);
+      this.notify();
+    }
+    return res;
+  }
+
+  // --- Monnaie, Tiroir-Caisse & Décaisse ---
+  public getCashFloatSettings(): CashFloatSettings {
+    return {
+      autoCalculationEnabled: true,
+      ...this.cashFloatSettings,
+      baseCounts: { ...this.cashFloatSettings.baseCounts },
+      lastRemainingCounts: { ...(this.cashFloatSettings.lastRemainingCounts || {}) },
+      carriedOverDifferences: { ...(this.cashFloatSettings.carriedOverDifferences || {}) }
+    };
+  }
+
+  public getCurrentDrawerState(incomingCash?: Record<string, number>): DrawerCashState {
+    return cashService.getCurrentDrawerState(
+      this.getCashFloatSettings(),
+      this.activeSession?.draftCashCounts,
+      incomingCash
+    );
+  }
+
+  public updateCashFloatSettings(updates: Partial<CashFloatSettings>): void {
+    this.cashFloatSettings = {
+      ...this.cashFloatSettings,
+      ...updates,
+      baseCounts: updates.baseCounts ? { ...updates.baseCounts } : this.cashFloatSettings.baseCounts,
+      lastRemainingCounts: updates.lastRemainingCounts ? { ...updates.lastRemainingCounts } : this.cashFloatSettings.lastRemainingCounts,
+      carriedOverDifferences: updates.carriedOverDifferences ? { ...updates.carriedOverDifferences } : this.cashFloatSettings.carriedOverDifferences,
+      updatedAt: new Date().toISOString()
+    };
+    this.saveCashFloatSettings();
+    const baseTotal = this.calculateBaseCashFloatTotal();
+    this.logActivity('INFO', `Paramètres du fond de caisse de référence mis à jour (Base: ${baseTotal.toFixed(2)} €)`);
+    this.notify();
+  }
+
+  public calculateBaseCashFloatTotal(baseCounts?: Record<string, number>): number {
+    return cashService.calculateBaseCashFloatTotal(baseCounts, this.cashFloatSettings.baseCounts);
+  }
+
+  public visaCashWithdrawal(sessionId: string, visaBy: string, visaNotes?: string): boolean {
+    const session = this.sessions.find(s => s.id === sessionId);
+    if (!session || !session.cashWithdrawal) return false;
+
+    session.cashWithdrawal.visaBy = visaBy;
+    session.cashWithdrawal.visaDate = new Date().toISOString();
+    session.cashWithdrawal.visaNotes = visaNotes || '';
+
+    this.saveSessions();
+    this.logActivity('INFO', `Visa de remise d'espèces validé par ${visaBy} pour la séance de ${session.volunteerName}`);
+    this.notify();
+    return true;
+  }
+
+  public getCashWithdrawals(): EnrichedCashWithdrawal[] {
+    return cashService.getCashWithdrawals(this.sessions);
+  }
+
+  // --- TPE & Terminal SumUp ---
   public getTpeSettings(): TpeSettings {
     return { ...this.tpeSettings };
   }
@@ -1113,6 +1149,7 @@ class DatabaseService {
     return [...this.tpeLogs];
   }
 
+  // --- Scores (Pacman / Snake) ---
   public getPacmanScores(): PacmanScore[] {
     const fakeNames = ['jérémy', 'jeremy', 'thomas m.', 'thomas'];
     return this.snakeScores
@@ -1171,1002 +1208,43 @@ class DatabaseService {
     this.notify();
   }
 
-  private saveSnakeScores(): void {
-    localStorage.setItem(STORAGE_KEYS.SNAKE_SCORES, JSON.stringify(this.snakeScores));
-    localStorage.setItem(STORAGE_KEYS.PACMAN_SCORES, JSON.stringify(this.snakeScores));
+  // --- Analytiques & Prédictions de stock ---
+  public getProductStockTimeline(
+    productId: string,
+    year: number,
+    month: number | 'all' = 'all'
+  ): ProductStockEvolution {
+    return catalogService.getProductStockTimeline(this.products, this.sales, this.restocks, productId, year, month);
   }
 
-  public logout(): void {
-    // Déclenche backup auto et déconnexion
-    const volName = this.currentVolunteer?.name || 'Inconnu';
-    this.createAutomaticBackup(`logout_${volName.replace(/[^a-zA-Z0-9]/g, '_')}`);
-    this.logActivity('INFO', `Déconnexion de ${volName}`);
-    this.currentVolunteer = null;
-    this.notify();
+  public getMultiProductSalesPrediction(
+    year: number,
+    month: number | 'all' = 'all'
+  ) {
+    return catalogService.getMultiProductSalesPrediction(this.products, this.sales, this.restocks, year, month);
   }
 
-  public saveActiveSession(): void {
-    if (this.activeSession) {
-      this.safeSetItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
-    }
-  }
-
-  public saveSessionDraft(draftNotes: string, draftPerkProductId?: string, draftCashCounts?: Record<string, number>): void {
-    if (!this.activeSession) return;
-    this.activeSession.draftNotes = draftNotes;
-    this.activeSession.draftPerkProductId = draftPerkProductId;
-    if (draftCashCounts) {
-      this.activeSession.draftCashCounts = { ...draftCashCounts };
-    }
-    this.saveActiveSession();
-  }
-
-  public clearSessionDraft(): void {
-    if (!this.activeSession) return;
-    delete this.activeSession.draftNotes;
-    delete this.activeSession.draftPerkProductId;
-    delete this.activeSession.draftCashCounts;
-    this.saveActiveSession();
-  }
-
-  public closeSession(
-    incidentNotes: string,
-    perkProductId?: string,
-    cashWithdrawal?: SessionCashWithdrawal
-  ): { session: Session; backupName: string; perkResult?: { success: boolean; message: string } } {
-    if (!this.activeSession) {
-      throw new Error('Aucune séance active à clôturer');
-    }
-
-    let perkResult: { success: boolean; message: string } | undefined;
-    if (perkProductId) {
-      perkResult = this.claimVolunteerPerk(this.activeSession.volunteerId, perkProductId, this.activeSession.id);
-    }
-
-    this.activeSession.endTime = new Date().toISOString();
-    this.activeSession.status = 'closed';
-    this.activeSession.incidentNotes = incidentNotes.trim();
-
-    if (cashWithdrawal) {
-      this.activeSession.cashWithdrawal = cashWithdrawal;
-
-      // Mémoriser l'état restant du fond de caisse et les reports pour la prochaine séance
-      const newLastRemainingCounts: Record<string, number> = {};
-      const newCarriedOverDifferences: Record<string, number> = {};
-
-      for (const item of cashWithdrawal.items) {
-        newLastRemainingCounts[item.id] = item.remainingCount;
-        const diff = item.remainingCount - item.baseCount;
-        if (diff !== 0) {
-          newCarriedOverDifferences[item.id] = diff;
-        }
-      }
-
-      this.cashFloatSettings.lastRemainingCounts = newLastRemainingCounts;
-      this.cashFloatSettings.carriedOverDifferences = newCarriedOverDifferences;
-      this.saveCashFloatSettings();
-    }
-
-    delete this.activeSession.draftNotes;
-    delete this.activeSession.draftPerkProductId;
-    delete this.activeSession.draftCashCounts;
-
-    this.sessions.unshift({ ...this.activeSession });
-    this.saveSessions();
-
-    const closedSession = { ...this.activeSession };
-    const volName = this.activeSession.volunteerName;
-
-    const withdrawalLog = cashWithdrawal
-      ? ` - Décaisse: ${cashWithdrawal.totalWithdrawn.toFixed(2)}€ (Fond restant: ${cashWithdrawal.totalRemainingFloat.toFixed(2)}€, Écart: ${cashWithdrawal.cashDiscrepancy >= 0 ? '+' : ''}${cashWithdrawal.cashDiscrepancy.toFixed(2)}€)`
-      : '';
-
-    this.logActivity('SESSION', `Clôture séance par ${volName}. Ventes: ${closedSession.totalSales.toFixed(2)}€ (${closedSession.salesCount} ventes). Notes: ${incidentNotes || 'Aucun incident'}${perkResult?.success ? ` - Conso offerte: ${perkResult.message}` : ''}${withdrawalLog}`);
-
-    // Création du backup horodaté de clôture
-    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const backupName = `openmdl_cloture_${dateStr}.mdlb`;
-    this.createAutomaticBackup(`cloture_${dateStr}`);
-
-    // Réinitialiser la session active
-    this.activeSession = null;
-    this.currentVolunteer = null;
-    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
-
-    (window as any).OpenMDL?.events.emit('session:closed', closedSession);
-
-    // Export USB automatique si activé
-    import('./syncService').then(m => {
-      const cfg = m.syncService.getConfig();
-      if (cfg.mode === 'usb' && cfg.usb.autoSyncOnClose && cfg.usb.filePath) {
-        m.syncService.exportToUsbFile();
-      }
-    }).catch(() => { });
-
-    this.notify();
-    return { session: closedSession, backupName, perkResult };
-  }
-
-  public createAutomaticBackup(tag: string): string {
-    const backupPayload = this.exportData();
-    const fileName = `backup_${tag}_${new Date().toISOString().slice(0, 10)}.mdlb`;
-
-    // Sauvegarde binaire sur disque via Tauri
-    import('./binaryCodec').then(codec => {
-      codec.saveBackupBinaryOnDisk(tag, backupPayload).catch(err => {
-        console.warn('Sauvegarde disque échouée :', err);
-      });
-    }).catch(() => {});
-
-    // Stockage dans l'historique des backups locaux (métadonnées uniquement)
-    try {
-      const jsonStr = JSON.stringify(backupPayload);
-      const backupsListKey = 'openmdl_backups_index';
-      const existing = JSON.parse(localStorage.getItem(backupsListKey) || '[]');
-      existing.unshift({
-        fileName,
-        date: new Date().toISOString(),
-        salesCount: this.sales.length,
-        productsCount: this.products.length,
-        size: jsonStr.length
-      });
-      this.safeSetItem(backupsListKey, JSON.stringify(existing.slice(0, 20)));
-    } catch (e) {
-      console.warn('Erreur indexation backup local:', e);
-    }
-
-    this.logActivity('BACKUP', `Sauvegarde automatique créée: ${fileName}`);
-    return fileName;
-  }
-
-  public getBackupsList(): Array<{ fileName: string; date: string; salesCount: number; productsCount: number }> {
-    try {
-      return JSON.parse(localStorage.getItem('openmdl_backups_index') || '[]');
-    } catch {
-      return [];
-    }
-  }
-
-  // --- Produits & Caisse ---
-  public getProducts(): Product[] {
-    return [...this.products];
-  }
-
-  public getProductById(id: string): Product | undefined {
-    return this.products.find(p => p.id === id);
-  }
-
-  public updateProduct(updated: Product): void {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
-      this.logActivity('WARNING', `Accès refusé : tentative de modification du catalogue/tarifs par @${this.currentVolunteer.username}`);
-      return;
-    }
-    const index = this.products.findIndex(p => p.id === updated.id);
-    if (index !== -1) {
-      const old = this.products[index];
-      this.products[index] = { ...updated };
-      this.saveProducts();
-      this.logActivity('INFO', `Mise à jour produit "${updated.name}" (Prix: ${old.price}€ -> ${updated.price}€, Stock: ${updated.stock})`);
-      this.notify();
-    }
-  }
-
-  public addProduct(product: Omit<Product, 'id'>): Product {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
-      this.logActivity('WARNING', `Accès refusé : tentative de création de produit par @${this.currentVolunteer.username}`);
-      return { ...product, id: 'unauthorized' };
-    }
-    const newProduct: Product = {
-      ...product,
-      id: 'prod-' + Date.now()
-    };
-    this.products.push(newProduct);
-    this.saveProducts();
-    this.logActivity('INFO', `Création nouveau produit "${newProduct.name}" (Prix: ${newProduct.price}€)`);
-    this.notify();
-    return newProduct;
-  }
-
-  public deleteProduct(id: string): void {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
-      this.logActivity('WARNING', `Accès refusé : tentative de suppression de produit par @${this.currentVolunteer.username}`);
-      return;
-    }
-    const prod = this.products.find(p => p.id === id);
-    if (prod) {
-      this.products = this.products.filter(p => p.id !== id);
-      this.saveProducts();
-      this.logActivity('WARNING', `Suppression du produit "${prod.name}"`);
-      this.notify();
-    }
-  }
-
-  // --- Restock Rapide ---
-  public applyRestock(productId: string, quantityToAdd: number, newPrice?: number, costPrice?: number): void {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
-      this.logActivity('WARNING', `Accès refusé : tentative de restock par @${this.currentVolunteer.username}`);
-      return;
-    }
-    const prod = this.products.find(p => p.id === productId);
-    if (!prod) return;
-
-    const previousStock = prod.stock;
-    prod.stock += quantityToAdd;
-    if (newPrice !== undefined && newPrice > 0) {
-      prod.price = newPrice;
-    }
-    if (costPrice !== undefined && costPrice > 0) {
-      prod.costPrice = costPrice;
-    }
-
-    const restockLog: RestockLog = {
-      id: 'restock-' + Date.now(),
-      productId: prod.id,
-      productName: prod.name,
-      quantityAdded: quantityToAdd,
-      previousStock,
-      newStock: prod.stock,
-      newPrice: prod.price,
-      costPrice: prod.costPrice,
-      timestamp: new Date().toISOString(),
-      volunteerName: this.currentVolunteer?.name || 'Inconnu'
-    };
-
-    this.restocks.unshift(restockLog);
-    this.saveRestocks();
-    this.saveProducts();
-
-    this.logActivity('RESTOCK', `Restock +${quantityToAdd} sur "${prod.name}" (Stock: ${previousStock} -> ${prod.stock})`);
-    this.notify();
-  }
-
-  public getRestocks(): RestockLog[] {
-    return [...this.restocks];
-  }
-
-  // --- Ventes & Encaissement ---
-  public recordSale(saleData: Omit<Sale, 'id' | 'timestamp' | 'volunteerId' | 'volunteerName' | 'sessionId'>): Sale {
-    const volunteer = this.currentVolunteer || { id: 'unknown', name: 'Bénévole' };
-    const sessionId = this.activeSession?.id || 'default-session';
-
-    const sale: Sale = {
-      id: 'sale-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-      timestamp: new Date().toISOString(),
-      volunteerId: volunteer.id,
-      volunteerName: volunteer.name,
-      sessionId,
-      ...saleData
-    };
-
-    // Décrémenter les stocks
-    for (const item of sale.items) {
-      const prod = this.products.find(p => p.id === item.productId);
-      if (prod) {
-        prod.stock = Math.max(0, prod.stock - item.quantity);
-      }
-    }
-    this.saveProducts();
-
-    // Ajouter la vente
-    this.sales.unshift(sale);
-    this.saveSales();
-
-    // Mettre à jour la session active
-    if (this.activeSession) {
-      this.activeSession.totalSales += sale.totalAmount;
-      this.activeSession.salesCount += 1;
-      if (sale.paymentMethod === 'especes') {
-        this.activeSession.totalCash += sale.totalAmount;
-
-        // Mémoriser la composition exacte des pièces/billets pour faciliter la décaisse
-        if (!this.activeSession.draftCashCounts) {
-          this.activeSession.draftCashCounts = {};
-        }
-        const givenBreakdown = sale.cashBreakdown?.given || decomposeCashAmount(sale.cashReceived || sale.totalAmount);
-        for (const [denomId, count] of Object.entries(givenBreakdown)) {
-          if (count > 0) {
-            this.activeSession.draftCashCounts[denomId] = (this.activeSession.draftCashCounts[denomId] || 0) + count;
-          }
-        }
-        if (sale.cashBreakdown?.returned) {
-          for (const [denomId, count] of Object.entries(sale.cashBreakdown.returned)) {
-            if (count > 0) {
-              this.activeSession.draftCashCounts[denomId] = Math.max(0, (this.activeSession.draftCashCounts[denomId] || 0) - count);
-            }
-          }
-        }
-      } else {
-        this.activeSession.totalTpe += sale.totalAmount;
-      }
-      localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
-    }
-
-    const itemsSummary = sale.items.map(i => `${i.quantity}x ${i.productName}`).join(', ');
-    this.logActivity('SALE', `Vente encaissée (${sale.paymentMethod.toUpperCase()}): ${sale.totalAmount.toFixed(2)}€ [${itemsSummary}]`);
-
-    (window as any).OpenMDL?.events.emit('sale:completed', sale);
-
-    this.notify();
-    return sale;
-  }
-
-  public getSales(): Sale[] {
-    return [...this.sales];
-  }
-
-  public getSessions(): Session[] {
-    return [...this.sessions];
-  }
-
+  // --- Données de démonstration ---
   public seedDemoSessions(): void {
-    const now = new Date();
-    const newSessions: Session[] = [];
-
-    // Déterminer le lundi de la semaine courante
-    const currDay = now.getDay();
-    const diffToMonday = now.getDate() - currDay + (currDay === 0 ? -6 : 1);
-    const currMonday = new Date(now.getFullYear(), now.getMonth(), diffToMonday);
-
-    const volunteersPool = [
-      { id: 'vol-admin', name: 'Adrien (Responsable MDL)', color: '#ea580c' },
-      { id: 'vol-2', name: 'Sarah L. (Trésorière)', color: '#8b5cf6' },
-      { id: 'vol-3', name: 'Thomas M. (Bénévole)', color: '#10b981' },
-      { id: 'vol-4', name: 'Lucas D. (Bénévole)', color: '#06b6d4' },
-      { id: 'vol-5', name: 'Emma R. (Secrétaire)', color: '#ec4899' },
-      { id: 'vol-6', name: 'Hugo B. (Bénévole)', color: '#f59e0b' }
-    ];
-
-    const notesPool = [
-      'Affluence très soutenue à la pause. Caisse parfaitement équilibrée.',
-      'Beaucoup de cafés et chocolats chauds distribués. R.A.S.',
-      'Séance calme et ordonnée. Stock de canettes fraîches réapprovisionné.',
-      'Forte demande sur les confiseries. Monnaie et caisse vérifiées.',
-      'Permanence impeccable, tables essuyées et local fermé à clé.',
-      'Excellente ambiance, beaucoup d\'adhérents au comptoir.'
-    ];
-
-    // Créneaux types du lycée :
-    // 1. Pause matin: 09:55 -> 10:20 (25 min)
-    // 2. Pause méridienne: 11:45 -> 13:45 (2h00)
-    // 3. Pause après-midi: 15:45 -> 16:15 (30 min)
-    // 4. Fin de journée: 17:05 -> 18:05 (1h00)
-
-    for (let w = 3; w >= 0; w--) {
-      const weekMonday = new Date(currMonday);
-      weekMonday.setDate(currMonday.getDate() - (w * 7));
-
-      for (let dayIdx = 0; dayIdx < 5; dayIdx++) {
-        const sessionDate = new Date(weekMonday);
-        sessionDate.setDate(weekMonday.getDate() + dayIdx);
-
-        if (sessionDate > now && sessionDate.toDateString() !== now.toDateString()) {
-          continue;
-        }
-
-        const isWednesday = dayIdx === 2;
-
-        // Créneau Matin (9h55 - 10h20)
-        {
-          const vol = volunteersPool[(w * 5 + dayIdx * 2) % volunteersPool.length];
-          const start = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 9, 55);
-          const end = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 10, 20);
-          const sales = 12 + ((dayIdx * 3 + w) % 9);
-          const totalSales = Math.round((15 + (dayIdx * 2.5) + (w * 1.5)) * 100) / 100;
-          const cash = Math.round(totalSales * 0.65 * 100) / 100;
-          const tpe = Math.round((totalSales - cash) * 100) / 100;
-
-          if (start < now) {
-            newSessions.push({
-              id: `demo-sess-w${w}-d${dayIdx}-morning`,
-              startTime: start.toISOString(),
-              endTime: end.toISOString(),
-              volunteerId: vol.id,
-              volunteerName: vol.name,
-              totalSales,
-              totalCash: cash,
-              totalTpe: tpe,
-              salesCount: sales,
-              incidentNotes: notesPool[(dayIdx + w) % notesPool.length],
-              status: 'closed'
-            });
-          }
-        }
-
-        // Créneau Midi (11h45 - 13h45)
-        {
-          const vol = volunteersPool[(w * 5 + dayIdx * 2 + 1) % volunteersPool.length];
-          const start = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 11, 45);
-          const end = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 13, 45);
-          const sales = 38 + ((dayIdx * 7 + w * 4) % 25);
-          const totalSales = Math.round((52 + (dayIdx * 6.5) + (w * 3.5)) * 100) / 100;
-          const cash = Math.round(totalSales * 0.55 * 100) / 100;
-          const tpe = Math.round((totalSales - cash) * 100) / 100;
-
-          if (start < now) {
-            newSessions.push({
-              id: `demo-sess-w${w}-d${dayIdx}-lunch`,
-              startTime: start.toISOString(),
-              endTime: end.toISOString(),
-              volunteerId: vol.id,
-              volunteerName: vol.name,
-              totalSales,
-              totalCash: cash,
-              totalTpe: tpe,
-              salesCount: sales,
-              incidentNotes: notesPool[(dayIdx + w + 1) % notesPool.length],
-              status: 'closed'
-            });
-          }
-        }
-
-        // Créneau Après-midi (15h45 - 16h15) (sauf mercredi)
-        if (!isWednesday) {
-          const vol = volunteersPool[(w * 5 + dayIdx * 2 + 2) % volunteersPool.length];
-          const start = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 15, 45);
-          const end = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 16, 15);
-          const sales = 15 + ((dayIdx * 4 + w * 2) % 12);
-          const totalSales = Math.round((21 + (dayIdx * 3.2) + (w * 2)) * 100) / 100;
-          const cash = Math.round(totalSales * 0.5 * 100) / 100;
-          const tpe = Math.round((totalSales - cash) * 100) / 100;
-
-          if (start < now) {
-            newSessions.push({
-              id: `demo-sess-w${w}-d${dayIdx}-afternoon`,
-              startTime: start.toISOString(),
-              endTime: end.toISOString(),
-              volunteerId: vol.id,
-              volunteerName: vol.name,
-              totalSales,
-              totalCash: cash,
-              totalTpe: tpe,
-              salesCount: sales,
-              incidentNotes: notesPool[(dayIdx + w + 2) % notesPool.length],
-              status: 'closed'
-            });
-          }
-        }
-
-        // Créneau Fin de journée (17h05 - 18h05) (Lundi, Mardi, Jeudi)
-        if (dayIdx === 0 || dayIdx === 1 || dayIdx === 3) {
-          const vol = volunteersPool[(w * 5 + dayIdx + 3) % volunteersPool.length];
-          const start = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 17, 5);
-          const end = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate(), 18, 5);
-          const sales = 10 + ((dayIdx * 2 + w) % 8);
-          const totalSales = Math.round((14.50 + (dayIdx * 2.1) + w) * 100) / 100;
-          const cash = Math.round(totalSales * 0.6 * 100) / 100;
-          const tpe = Math.round((totalSales - cash) * 100) / 100;
-
-          if (start < now) {
-            newSessions.push({
-              id: `demo-sess-w${w}-d${dayIdx}-evening`,
-              startTime: start.toISOString(),
-              endTime: end.toISOString(),
-              volunteerId: vol.id,
-              volunteerName: vol.name,
-              totalSales,
-              totalCash: cash,
-              totalTpe: tpe,
-              salesCount: sales,
-              incidentNotes: notesPool[(dayIdx + w + 3) % notesPool.length],
-              status: 'closed'
-            });
-          }
-        }
-      }
-
-      // Samedi matin (Réunion bureau / permanence spéciale)
-      {
-        const saturdayDate = new Date(weekMonday);
-        saturdayDate.setDate(weekMonday.getDate() + 5);
-        if (saturdayDate <= now) {
-          const start = new Date(saturdayDate.getFullYear(), saturdayDate.getMonth(), saturdayDate.getDate(), 10, 0);
-          const end = new Date(saturdayDate.getFullYear(), saturdayDate.getMonth(), saturdayDate.getDate(), 12, 15);
-          newSessions.push({
-            id: `demo-sess-w${w}-sat`,
-            startTime: start.toISOString(),
-            endTime: end.toISOString(),
-            volunteerId: 'vol-admin',
-            volunteerName: 'Adrien (Responsable MDL)',
-            totalSales: 28.50,
-            totalCash: 16.00,
-            totalTpe: 12.50,
-            salesCount: 19,
-            incidentNotes: 'Permanence d\'accueil et réunion de rentrée du bureau MDL.',
-            status: 'closed'
-          });
-        }
-      }
-    }
-
-    if (this.activeSession) {
-      newSessions.unshift({ ...this.activeSession });
-    }
-
-    newSessions.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-    this.sessions = newSessions;
+    this.sessions = demoDataService.seedDemoSessions(this.activeSession);
     this.saveSessions();
     this.notify();
   }
 
-  public getLogs(): ActivityLog[] {
-    return [...this.logs];
-  }
-
-  // --- Gestion des Consommations Offertes aux Bénévoles (Paramétrable) ---
-  public getPerkSettings(): PerkSettings {
-    return { ...this.perkSettings };
-  }
-
-  public updatePerkSettings(updates: Partial<PerkSettings>): void {
-    this.perkSettings = { ...this.perkSettings, ...updates };
-    localStorage.setItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
-    const statusTxt = this.perkSettings.enabled ? 'Activée' : 'Désactivée';
-    const ruleTxt = this.perkSettings.rule === 'items_sold'
-      ? `${this.perkSettings.threshold} articles vendus`
-      : this.perkSettings.rule === 'sales_count'
-        ? `${this.perkSettings.threshold} ventes`
-        : 'Toujours offerte';
-    this.logActivity('INFO', `Règles de collation bénévole mises à jour (${statusTxt}, règle: ${ruleTxt})`);
-    this.notify();
-  }
-
-  // --- Gestion du Fond de Caisse de Référence & Décaisse ---
-  public getCashFloatSettings(): CashFloatSettings {
-    return {
-      autoCalculationEnabled: true,
-      ...this.cashFloatSettings,
-      baseCounts: { ...this.cashFloatSettings.baseCounts },
-      lastRemainingCounts: { ...(this.cashFloatSettings.lastRemainingCounts || {}) },
-      carriedOverDifferences: { ...(this.cashFloatSettings.carriedOverDifferences || {}) }
-    };
-  }
-
-  public getCurrentDrawerState(incomingCash?: Record<string, number>): DrawerCashState {
-    const floatSettings = this.getCashFloatSettings();
-    const base = { ...DEFAULT_CASH_FLOAT_SETTINGS.baseCounts, ...(floatSettings.baseCounts || {}) };
-    const prevDiff = floatSettings.carriedOverDifferences || {};
-
-    const effectiveBase: Record<string, number> = {};
-    for (const denom of EURO_DENOMINATIONS) {
-      effectiveBase[denom.id] = Math.max(0, (base[denom.id] || 0) + (prevDiff[denom.id] || 0));
-    }
-
-    const sessionExtra = this.activeSession?.draftCashCounts || {};
-
-    const available: Record<string, number> = {};
-    const surplus: Record<string, number> = {};
-
-    for (const denom of EURO_DENOMINATIONS) {
-      const currentInDrawer = Math.max(
-        0,
-        (effectiveBase[denom.id] || 0) + (sessionExtra[denom.id] || 0) + (incomingCash?.[denom.id] || 0)
-      );
-      available[denom.id] = currentInDrawer;
-      surplus[denom.id] = Math.max(0, currentInDrawer - effectiveBase[denom.id]);
-    }
-
-    return { available, base: effectiveBase, surplus };
-  }
-
-  public updateCashFloatSettings(updates: Partial<CashFloatSettings>): void {
-    this.cashFloatSettings = {
-      ...this.cashFloatSettings,
-      ...updates,
-      baseCounts: updates.baseCounts ? { ...updates.baseCounts } : this.cashFloatSettings.baseCounts,
-      lastRemainingCounts: updates.lastRemainingCounts ? { ...updates.lastRemainingCounts } : this.cashFloatSettings.lastRemainingCounts,
-      carriedOverDifferences: updates.carriedOverDifferences ? { ...updates.carriedOverDifferences } : this.cashFloatSettings.carriedOverDifferences,
-      updatedAt: new Date().toISOString()
-    };
-    this.saveCashFloatSettings();
-    const baseTotal = this.calculateBaseCashFloatTotal();
-    this.logActivity('INFO', `Paramètres du fond de caisse de référence mis à jour (Base: ${baseTotal.toFixed(2)} €)`);
-    this.notify();
-  }
-
-  public calculateBaseCashFloatTotal(baseCounts?: Record<string, number>): number {
-    const counts = baseCounts || this.cashFloatSettings.baseCounts;
-    let total = 0;
-    for (const [denomId, qty] of Object.entries(counts)) {
-      const val = parseFloat(denomId);
-      if (!isNaN(val) && qty > 0) {
-        total += val * qty;
-      }
-    }
-    return Math.round(total * 100) / 100;
-  }
-
-  public getVolunteerPerks(): VolunteerPerk[] {
-    return [...this.volunteerPerks];
-  }
-
-  public getSessionSalesCount(sessionId?: string): number {
-    const targetSessionId = sessionId || this.activeSession?.id;
-    if (!targetSessionId) return 0;
-    return this.sales.filter(s => s.sessionId === targetSessionId).length;
-  }
-
-  public getSessionItemsSoldCount(sessionId?: string): number {
-    const targetSessionId = sessionId || this.activeSession?.id;
-    if (!targetSessionId) return 0;
-    return this.sales
-      .filter(s => s.sessionId === targetSessionId)
-      .reduce((total, s) => total + s.items.reduce((sum, item) => sum + (item.quantity || 1), 0), 0);
-  }
-
-  public getTodaySalesForVolunteer(volunteerId: string): number {
-    const todayStr = new Date().toISOString().split('T')[0];
-    return this.sales.filter(s => s.volunteerId === volunteerId && s.timestamp.startsWith(todayStr)).length;
-  }
-
-  public getTodayItemsSoldForVolunteer(volunteerId: string): number {
-    const todayStr = new Date().toISOString().split('T')[0];
-    return this.sales
-      .filter(s => s.volunteerId === volunteerId && s.timestamp.startsWith(todayStr))
-      .reduce((total, s) => total + s.items.reduce((sum, item) => sum + (item.quantity || 1), 0), 0);
-  }
-
-  public hasVolunteerClaimedPerkToday(volunteerId: string): boolean {
-    const todayStr = new Date().toISOString().split('T')[0];
-    return this.volunteerPerks.some(p => p.volunteerId === volunteerId && p.date === todayStr);
-  }
-
-  public canClaimVolunteerPerk(volunteerId: string, sessionId?: string): {
-    allowed: boolean;
-    reason?: string;
-    salesToday: number;
-    requiredSales: number;
-    current: number;
-    required: number;
-    rule: PerkEligibilityRule;
-    enabled: boolean;
-  } {
-    const settings = this.perkSettings;
-    const targetSessionId = sessionId || this.activeSession?.id;
-    const salesToday = this.getTodaySalesForVolunteer(volunteerId);
-
-    let current = 0;
-    let required = settings.threshold;
-
-    if (settings.rule === 'sales_count') {
-      current = targetSessionId
-        ? this.getSessionSalesCount(targetSessionId)
-        : salesToday;
-    } else if (settings.rule === 'items_sold') {
-      current = targetSessionId
-        ? this.getSessionItemsSoldCount(targetSessionId)
-        : this.getTodayItemsSoldForVolunteer(volunteerId);
-    } else {
-      // 'always'
-      current = 1;
-      required = 1;
-    }
-
-    if (!settings.enabled) {
-      return {
-        allowed: false,
-        reason: 'La collation bénévole offerte est actuellement désactivée dans les réglages',
-        salesToday,
-        requiredSales: required,
-        current,
-        required,
-        rule: settings.rule,
-        enabled: false
-      };
-    }
-
-    const alreadyClaimed = this.hasVolunteerClaimedPerkToday(volunteerId);
-    if (!settings.allowMultiplePerDay && alreadyClaimed) {
-      return {
-        allowed: false,
-        reason: 'Collation offerte déjà accordée aujourd\'hui (maximum 1 par jour)',
-        salesToday,
-        requiredSales: required,
-        current,
-        required,
-        rule: settings.rule,
-        enabled: true
-      };
-    }
-
-    if (settings.rule === 'sales_count' && current < required) {
-      return {
-        allowed: false,
-        reason: `Règle des ${required} ventes non atteinte (${current}/${required} ventes réalisées dans la séance)`,
-        salesToday,
-        requiredSales: required,
-        current,
-        required,
-        rule: settings.rule,
-        enabled: true
-      };
-    }
-
-    if (settings.rule === 'items_sold' && current < required) {
-      return {
-        allowed: false,
-        reason: `Règle des ${required} articles non atteinte (${current}/${required} articles vendus dans la séance)`,
-        salesToday,
-        requiredSales: required,
-        current,
-        required,
-        rule: settings.rule,
-        enabled: true
-      };
-    }
-
-    return {
-      allowed: true,
-      salesToday,
-      requiredSales: required,
-      current,
-      required,
-      rule: settings.rule,
-      enabled: true
-    };
-  }
-
-  public claimVolunteerPerk(volunteerId: string, productId: string, sessionId?: string): { success: boolean; message: string; perk?: VolunteerPerk } {
-    const volunteer = this.volunteers.find(v => v.id === volunteerId) || this.currentVolunteer;
-    if (!volunteer) return { success: false, message: 'Bénévole introuvable.' };
-
-    const check = this.canClaimVolunteerPerk(volunteer.id, sessionId);
-    if (!check.allowed) {
-      return { success: false, message: check.reason || 'Conditions non remplies.' };
-    }
-
-    const product = this.products.find(p => p.id === productId);
-    if (!product) return { success: false, message: 'Article sélectionné introuvable.' };
-    if (product.stock <= 0) return { success: false, message: 'Article actuellement en rupture.' };
-
-    // Décompter 1 unité du stock
-    product.stock -= 1;
-    this.saveProducts();
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const perk: VolunteerPerk = {
-      id: 'perk-' + Date.now(),
-      volunteerId: volunteer.id,
-      volunteerName: volunteer.name,
-      productId: product.id,
-      productName: product.name,
-      costPrice: product.costPrice,
-      sellingPrice: product.price,
-      date: todayStr,
-      timestamp: new Date().toISOString()
-    };
-
-    this.volunteerPerks.unshift(perk);
-    this.saveVolunteerPerks();
-
-    this.logActivity('INFO', `Conso offerte bénévole : "${product.name}" attribuée à ${volunteer.name} (Coût foyer : ${product.costPrice.toFixed(2)}€)`);
-    this.notify();
-
-    return {
-      success: true,
-      message: `Conso offerte (${product.name}) accordée avec succès à ${volunteer.name} !`,
-      perk
-    };
-  }
-
-  private saveVolunteerPerks(): void {
-    localStorage.setItem(STORAGE_KEYS.PERKS, JSON.stringify(this.volunteerPerks));
-  }
-
-  // --- Données d'exemple riches pour Graphiques et Démo (Activables sur demande) ---
   public seedDemoData(): void {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-
-    // Injecter les utilisateurs de démonstration
-    this.volunteers = JSON.parse(JSON.stringify(DEMO_VOLUNTEERS));
+    const data = demoDataService.generateDemoDataset();
+    this.volunteers = data.volunteers;
     this.saveVolunteers();
-    this.currentVolunteer = this.volunteers[0];
-
-    // Générer des ventes sur les 5 derniers jours
-    const sampleSales: Sale[] = [];
-    this.products = JSON.parse(JSON.stringify(DEMO_PRODUCTS));
+    this.currentVolunteer = data.currentVolunteer;
+    this.products = data.products;
     this.saveProducts();
-    const prods = this.products;
-
-    // Ventes d'aujourd'hui pour Adrien (12 ventes pour dépasser les 10 requises)
-    for (let i = 0; i < 12; i++) {
-      const p = prods[i % prods.length];
-      const hour = 9 + Math.floor(i / 2);
-      const minute = (i * 13) % 60;
-      const saleDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute);
-
-      sampleSales.push({
-        id: `seed-sale-today-${i}`,
-        timestamp: saleDate.toISOString(),
-        volunteerId: 'vol-1',
-        volunteerName: 'Adrien (Responsable MDL)',
-        sessionId: 'sess-today',
-        paymentMethod: i % 3 === 0 ? 'especes' : 'tpe',
-        totalAmount: p.price,
-        items: [{
-          productId: p.id,
-          productName: p.name,
-          unitPrice: p.price,
-          quantity: 1,
-          totalPrice: p.price
-        }]
-      });
-    }
-
-    // Ventes des jours passés (hier, J-2, J-3, J-4)
-    for (let dayOffset = 1; dayOffset <= 4; dayOffset++) {
-      const pastDate = new Date(now);
-      pastDate.setDate(now.getDate() - dayOffset);
-      const salesCount = 8 + (dayOffset * 3);
-
-      for (let j = 0; j < salesCount; j++) {
-        const p = prods[(j + dayOffset) % prods.length];
-        const vol = INITIAL_VOLUNTEERS[j % INITIAL_VOLUNTEERS.length];
-        const saleTimestamp = new Date(pastDate.getFullYear(), pastDate.getMonth(), pastDate.getDate(), 10 + (j % 7), (j * 17) % 60).toISOString();
-
-        sampleSales.push({
-          id: `seed-sale-${dayOffset}-${j}`,
-          timestamp: saleTimestamp,
-          volunteerId: vol.id,
-          volunteerName: vol.name,
-          sessionId: `sess-${dayOffset}`,
-          paymentMethod: j % 2 === 0 ? 'especes' : 'tpe',
-          totalAmount: p.price,
-          items: [{
-            productId: p.id,
-            productName: p.name,
-            unitPrice: p.price,
-            quantity: 1,
-            totalPrice: p.price
-          }]
-        });
-      }
-    }
-
-    // Ventes des mois passés de l'année en cours pour alimenter la comparaison mensuelle
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    for (let m = 0; m < currentMonth; m++) {
-      const monthSalesTarget = 25 + (m * 6);
-      for (let s = 0; s < monthSalesTarget; s++) {
-        const p = prods[(s + m) % prods.length];
-        const vol = INITIAL_VOLUNTEERS[s % INITIAL_VOLUNTEERS.length];
-        const day = 1 + ((s * 3) % 27);
-        const saleTime = new Date(currentYear, m, day, 11 + (s % 5), (s * 13) % 60).toISOString();
-
-        sampleSales.push({
-          id: `seed-pastmonth-${m}-${s}`,
-          timestamp: saleTime,
-          volunteerId: vol.id,
-          volunteerName: vol.name,
-          sessionId: `sess-m-${m}`,
-          paymentMethod: s % 3 === 0 ? 'especes' : 'tpe',
-          totalAmount: p.price,
-          items: [{
-            productId: p.id,
-            productName: p.name,
-            unitPrice: p.price,
-            quantity: 1,
-            totalPrice: p.price
-          }]
-        });
-      }
-    }
-
-    this.sales = sampleSales;
+    this.sales = data.sales;
     this.saveSales();
-
-    // Ajouter des consos gratuites pour chaque mois passé et les jours récents
-    const perksList: VolunteerPerk[] = [];
-    for (let m = 0; m <= currentMonth; m++) {
-      // Pour Avril (m=3), simuler un mois où les bénévoles ont trop consommé pour démontrer le dépassement visuel !
-      const perksCount = m === 3 ? 35 : m === currentMonth ? 3 : 2 + (m % 3);
-      for (let k = 0; k < perksCount; k++) {
-        const perkProd = prods[(k + 1) % prods.length];
-        const vol = INITIAL_VOLUNTEERS[k % INITIAL_VOLUNTEERS.length];
-        const day = m === currentMonth ? (now.getDate() - (k + 1)) : (1 + (k % 26));
-        const pDate = new Date(currentYear, m, Math.max(1, day), 12, 30);
-        perksList.push({
-          id: `perk-seed-${m}-${k}`,
-          volunteerId: vol.id,
-          volunteerName: vol.name,
-          productId: perkProd.id,
-          productName: perkProd.name,
-          costPrice: perkProd.costPrice,
-          sellingPrice: perkProd.price,
-          date: pDate.toISOString().split('T')[0],
-          timestamp: pDate.toISOString()
-        });
-      }
-    }
-
-    this.volunteerPerks = perksList;
+    this.volunteerPerks = data.volunteerPerks;
     this.saveVolunteerPerks();
-
-    // Seeder les restocks réguliers au fil des mois pour alimenter l'historique visuel
-    const sampleRestocks: RestockLog[] = [];
-    for (let m = 0; m <= currentMonth; m++) {
-      prods.forEach((prod, pIdx) => {
-        // Premier restock mensuel (début de mois)
-        const qty1 = 20 + ((pIdx * 7) % 25);
-        const day1 = 2 + (pIdx % 3);
-        const d1 = new Date(currentYear, m, day1, 9, 30);
-        sampleRestocks.push({
-          id: `seed-restock-${m}-${prod.id}-1`,
-          productId: prod.id,
-          productName: prod.name,
-          quantityAdded: qty1,
-          previousStock: Math.max(2, prod.minStockAlert - 2),
-          newStock: Math.max(2, prod.minStockAlert - 2) + qty1,
-          costPrice: prod.costPrice,
-          timestamp: d1.toISOString(),
-          volunteerName: 'Administrateur'
-        });
-
-        // Deuxième restock mensuel (milieu de mois)
-        if (m < currentMonth || now.getDate() >= 16) {
-          const qty2 = 15 + ((pIdx * 4) % 20);
-          const day2 = 16 + (pIdx % 4);
-          const d2 = new Date(currentYear, m, day2, 14, 0);
-          sampleRestocks.push({
-            id: `seed-restock-${m}-${prod.id}-2`,
-            productId: prod.id,
-            productName: prod.name,
-            quantityAdded: qty2,
-            previousStock: Math.max(3, prod.minStockAlert - 1),
-            newStock: Math.max(3, prod.minStockAlert - 1) + qty2,
-            costPrice: prod.costPrice,
-            timestamp: d2.toISOString(),
-            volunteerName: 'Administrateur'
-          });
-        }
-      });
-    }
-
-    this.restocks = sampleRestocks;
+    this.restocks = data.restocks;
     this.saveRestocks();
-
-    // Ajouter des logs TPE de démo
-    this.tpeLogs = [
-      {
-        id: 'tpe-demo-1',
-        timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
-        amount: 2.20,
-        currency: 'EUR',
-        status: 'SUCCESS',
-        readerName: 'SumUp Solo (Foyer MDL)',
-        cardBrand: 'Visa Contactless',
-        last4: '4821',
-        transactionCode: 'TX-SUM-9281',
-        volunteerName: 'Jérémy (Bénévole)'
-      },
-      {
-        id: 'tpe-demo-2',
-        timestamp: new Date(Date.now() - 1000 * 60 * 75).toISOString(),
-        amount: 1.50,
-        currency: 'EUR',
-        status: 'SUCCESS',
-        readerName: 'SumUp Solo (Foyer MDL)',
-        cardBrand: 'Apple Pay (Mastercard)',
-        last4: '1094',
-        transactionCode: 'TX-SUM-9280',
-        volunteerName: 'Administrateur'
-      },
-      {
-        id: 'tpe-demo-3',
-        timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-        amount: 3.00,
-        currency: 'EUR',
-        status: 'SUCCESS',
-        readerName: 'SumUp Solo (Foyer MDL)',
-        cardBrand: 'CB Sans-Contact',
-        last4: '3349',
-        transactionCode: 'TX-SUM-9279',
-        volunteerName: 'Jérémy (Bénévole)'
-      }
-    ];
+    this.tpeLogs = data.tpeLogs;
     this.saveTpeLogs();
 
     localStorage.setItem('OPENMDL_DEMO_ACTIVE', 'true');
@@ -2206,479 +1284,10 @@ class DatabaseService {
     return localStorage.getItem('OPENMDL_DEMO_ACTIVE') === 'true';
   }
 
-  // --- Évolution des stocks au cours du temps pour un produit sélectionné ---
-  public getProductStockTimeline(
-    productId: string,
-    year: number,
-    month: number | 'all' = 'all'
-  ): ProductStockEvolution {
-    const prod = this.products.find(p => p.id === productId) || this.products[0];
-    if (!prod) {
-      return {
-        product: { id: '', name: 'Aucun produit', category: 'autre', price: 0, costPrice: 0, stock: 0, minStockAlert: 0, imageUrl: '', isActive: false },
-        timeframe: month === 'all' ? 'year' : 'month',
-        year,
-        month,
-        dataPoints: [],
-        summary: {
-          currentStock: 0,
-          initialStock: 0,
-          totalSold: 0,
-          totalRestocked: 0,
-          dailyVelocity: 0,
-          daysUntilOut: null,
-          recommendedRestockQty: 0,
-          urgentStatus: 'ok'
-        }
-      };
-    }
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    const isCurrentYear = year === currentYear;
-
-    const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
-
-    if (month === 'all') {
-      // VUE ANNUELLE : Mois par mois (Janvier à Décembre ou jusqu'au mois en cours)
-      const maxMonth = isCurrentYear ? currentMonth : 11;
-      const dataPoints: ProductStockHistoryPoint[] = [];
-
-      let runningStock = Math.max(prod.stock, 25);
-
-      for (let m = 0; m <= maxMonth; m++) {
-        const monthSales = this.sales.filter(s => {
-          const d = new Date(s.timestamp);
-          return d.getFullYear() === year && d.getMonth() === m;
-        });
-
-        let soldInMonth = 0;
-        monthSales.forEach(s => {
-          const item = s.items.find(it => it.productId === prod.id);
-          if (item) soldInMonth += item.quantity;
-        });
-
-        const monthRestocks = this.restocks.filter(r => {
-          const d = new Date(r.timestamp);
-          return d.getFullYear() === year && d.getMonth() === m && r.productId === prod.id;
-        });
-
-        const restockedInMonth = monthRestocks.reduce((sum, r) => sum + r.quantityAdded, 0);
-
-        if (m === currentMonth && isCurrentYear) {
-          runningStock = prod.stock;
-        } else {
-          runningStock = Math.max(0, runningStock + restockedInMonth - soldInMonth);
-          if (runningStock === 0 && restockedInMonth === 0) {
-            runningStock = Math.max(4, prod.minStockAlert + 5);
-          }
-        }
-
-        dataPoints.push({
-          label: monthNames[m],
-          dateKey: `${year}-${String(m + 1).padStart(2, '0')}`,
-          stockLevel: runningStock,
-          minStockAlert: prod.minStockAlert,
-          soldCount: soldInMonth,
-          restockCount: restockedInMonth,
-          isRestockEvent: restockedInMonth > 0,
-          isAlertEvent: runningStock <= prod.minStockAlert
-        });
-      }
-
-      const totalSold = dataPoints.reduce((sum, dp) => sum + dp.soldCount, 0);
-      const totalRestocked = dataPoints.reduce((sum, dp) => sum + dp.restockCount, 0);
-      const daysCount = (maxMonth + 1) * 30;
-      const dailyVelocity = Number((totalSold / Math.max(1, daysCount)).toFixed(2));
-      const daysUntilOut = dailyVelocity > 0 ? Math.round(prod.stock / dailyVelocity) : null;
-      const recommendedRestockQty = Math.max(prod.minStockAlert * 2, Math.round(dailyVelocity * 14));
-
-      return {
-        product: prod,
-        timeframe: 'year',
-        year,
-        month: 'all',
-        dataPoints,
-        summary: {
-          currentStock: prod.stock,
-          initialStock: dataPoints[0]?.stockLevel || prod.stock,
-          totalSold,
-          totalRestocked,
-          dailyVelocity,
-          daysUntilOut,
-          recommendedRestockQty,
-          urgentStatus: prod.stock <= prod.minStockAlert ? 'urgent' : prod.stock <= prod.minStockAlert * 1.5 ? 'warning' : 'ok'
-        }
-      };
-    } else {
-      // VUE MENSUELLE DÉTAILLÉE : Jour par jour du mois sélectionné
-      const numMonth = Number(month);
-      const daysInMonth = new Date(year, numMonth + 1, 0).getDate();
-      const maxDay = (isCurrentYear && numMonth === currentMonth) ? now.getDate() : daysInMonth;
-
-      const monthSales = this.sales.filter(s => {
-        const d = new Date(s.timestamp);
-        return d.getFullYear() === year && d.getMonth() === numMonth;
-      });
-
-      const monthRestocks = this.restocks.filter(r => {
-        const d = new Date(r.timestamp);
-        return d.getFullYear() === year && d.getMonth() === numMonth && r.productId === prod.id;
-      });
-
-      const dailySalesMap = new Map<number, number>();
-      monthSales.forEach(s => {
-        const d = new Date(s.timestamp).getDate();
-        const item = s.items.find(it => it.productId === prod.id);
-        if (item) {
-          dailySalesMap.set(d, (dailySalesMap.get(d) || 0) + item.quantity);
-        }
-      });
-
-      const dailyRestocksMap = new Map<number, number>();
-      monthRestocks.forEach(r => {
-        const d = new Date(r.timestamp).getDate();
-        dailyRestocksMap.set(d, (dailyRestocksMap.get(d) || 0) + r.quantityAdded);
-      });
-
-      const dataPoints: ProductStockHistoryPoint[] = [];
-      let totalSold = 0;
-      let totalRestocked = 0;
-
-      const dailyStockArray: number[] = new Array(maxDay + 1);
-      dailyStockArray[maxDay] = prod.stock;
-
-      for (let day = maxDay; day >= 1; day--) {
-        const soldToday = dailySalesMap.get(day) || 0;
-        const restockToday = dailyRestocksMap.get(day) || 0;
-        totalSold += soldToday;
-        totalRestocked += restockToday;
-
-        if (day > 1) {
-          dailyStockArray[day - 1] = Math.max(0, dailyStockArray[day] - restockToday + soldToday);
-        }
-      }
-
-      for (let day = 1; day <= maxDay; day++) {
-        const sold = dailySalesMap.get(day) || 0;
-        const restock = dailyRestocksMap.get(day) || 0;
-        const stockLevel = dailyStockArray[day];
-
-        dataPoints.push({
-          label: `${day} ${monthNames[numMonth]}`,
-          dateKey: `${year}-${String(numMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-          stockLevel,
-          minStockAlert: prod.minStockAlert,
-          soldCount: sold,
-          restockCount: restock,
-          isRestockEvent: restock > 0,
-          isAlertEvent: stockLevel <= prod.minStockAlert
-        });
-      }
-
-      const dailyVelocity = Number((totalSold / Math.max(1, maxDay)).toFixed(2));
-      const daysUntilOut = dailyVelocity > 0 ? Math.round(prod.stock / dailyVelocity) : null;
-      const recommendedRestockQty = Math.max(prod.minStockAlert * 2, Math.round(dailyVelocity * 10));
-
-      return {
-        product: prod,
-        timeframe: 'month',
-        year,
-        month: numMonth,
-        dataPoints,
-        summary: {
-          currentStock: prod.stock,
-          initialStock: dataPoints[0]?.stockLevel || prod.stock,
-          totalSold,
-          totalRestocked,
-          dailyVelocity,
-          daysUntilOut,
-          recommendedRestockQty,
-          urgentStatus: prod.stock <= prod.minStockAlert ? 'urgent' : prod.stock <= prod.minStockAlert * 1.5 ? 'warning' : 'ok'
-        }
-      };
-    }
-  }
-
-  // --- Moteur prédictif des ventes multi-produits : saisonnalité météo, rotation des 3 classes & restocks ---
-  public getMultiProductSalesPrediction(
-    year: number,
-    month: number | 'all' = 'all'
-  ): {
-    timeframe: 'month' | 'year';
-    labels: string[];
-    isFuturePoint: boolean[];
-    restockEvents: { label: string; count: number; products: string[] }[];
-    productsData: {
-      product: Product;
-      historicalSales: (number | null)[];
-      predictedSales: (number | null)[];
-      currentMonthForecastTotal: number;
-      restockCountPerPoint: number[];
-      color: string;
-    }[];
-    totalForecastThisMonth: number;
-    weatherFactorSummary: string;
-    turnoverFactorSummary: string;
-  } {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    const isCurrentYear = year === currentYear;
-    const isPastYear = year < currentYear;
-
-    const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
-
-    // Facteurs climatiques et habitudes saisonnières au lycée :
-    // - Froid hivernal (Nov, Déc, Jan, Fév) : surconsommation boissons chaudes (+45%), légère baisse boissons fraîches (-20%)
-    // - Printemps / Chaleur (Mai, Juin, Sept) : explosion des boissons fraîches (+35%), baisse chaud (-45%)
-    // - Période examens / rush rentrée (Sept, Oct, Déc) : snacks & barres (+25%)
-    const getWeatherMultiplier = (m: number, category: string): number => {
-      if (category === 'chaud') {
-        if (m === 11 || m === 0 || m === 1) return 1.45; // Hiver rigoureux
-        if (m === 10 || m === 2) return 1.25; // Automne / début printemps frisquet
-        if (m >= 4 && m <= 8) return 0.55; // Période estivale tiède
-        return 0.90;
-      }
-      if (category === 'boissons') {
-        if (m >= 4 && m <= 8) return 1.35; // Chaleur estivale
-        if (m === 11 || m === 0 || m === 1) return 0.80; // Froid
-        return 1.0;
-      }
-      if (category === 'snacks' || category === 'bonbons') {
-        if (m === 8 || m === 9 || m === 11) return 1.20; // Rentrée et fin de trimestre
-        return 1.0;
-      }
-      return 1.0;
-    };
-
-    // Facteur démographique : 3 classes arrivent (Secondes), 3 classes partent (Terminales diplômées)
-    // Renouvellement de ~30-33% de l'effectif étudiant chaque année
-    const getCohortTurnoverMultiplier = (m: number): number => {
-      if (m === 8 || m === 9) return 1.15; // Arrivée des 3 nouvelles classes pleines d'énergie
-      if (m >= 5 && m <= 6) return 0.85; // Départs des terminales et révisions
-      return 1.02; // Dynamique globale constante
-    };
-
-    const palette = [
-      '#0284c7', '#ea580c', '#db2777', '#7c3aed', '#10b981',
-      '#f59e0b', '#06b6d4', '#6366f1', '#ec4899', '#84cc16'
-    ];
-
-    if (month === 'all') {
-      // VUE ANNUELLE : 12 mois
-      const labels = monthNames;
-      const isFuturePoint: boolean[] = [];
-      for (let m = 0; m < 12; m++) {
-        isFuturePoint.push(isCurrentYear ? m > currentMonth : !isPastYear);
-      }
-
-      // Restocks consolidés par mois
-      const restockEvents: { label: string; count: number; products: string[] }[] = [];
-      for (let m = 0; m < 12; m++) {
-        const mRestocks = this.restocks.filter(r => {
-          const d = new Date(r.timestamp);
-          return d.getFullYear() === year && d.getMonth() === m;
-        });
-        const count = mRestocks.reduce((sum, r) => sum + r.quantityAdded, 0);
-        const prodNames = Array.from(new Set(mRestocks.map(r => r.productName)));
-        restockEvents.push({ label: monthNames[m], count, products: prodNames });
-      }
-
-      const productsData = this.products.map((prod, pIdx) => {
-        const color = palette[pIdx % palette.length];
-        const historicalSales: (number | null)[] = [];
-        const predictedSales: (number | null)[] = [];
-        const restockCountPerPoint: number[] = [];
-
-        const priorYearSales = this.sales.filter(s => {
-          const d = new Date(s.timestamp);
-          return d.getFullYear() === year - 1;
-        });
-        const priorMonthAverage = new Array(12).fill(0);
-        priorYearSales.forEach(s => {
-          const m = new Date(s.timestamp).getMonth();
-          const it = s.items.find(i => i.productId === prod.id);
-          if (it) priorMonthAverage[m] += it.quantity;
-        });
-
-        for (let m = 0; m < 12; m++) {
-          const mSales = this.sales.filter(s => {
-            const d = new Date(s.timestamp);
-            return d.getFullYear() === year && d.getMonth() === m;
-          });
-          let soldInM = 0;
-          mSales.forEach(s => {
-            const it = s.items.find(i => i.productId === prod.id);
-            if (it) soldInM += it.quantity;
-          });
-
-          const mRestocks = this.restocks.filter(r => {
-            const d = new Date(r.timestamp);
-            return d.getFullYear() === year && d.getMonth() === m && r.productId === prod.id;
-          });
-          const restockQty = mRestocks.reduce((sum, r) => sum + r.quantityAdded, 0);
-          restockCountPerPoint.push(restockQty);
-
-          const isFuture = isCurrentYear ? m > currentMonth : !isPastYear;
-
-          if (!isFuture) {
-            historicalSales.push(soldInM);
-            predictedSales.push(m === currentMonth && isCurrentYear ? soldInM : null);
-          } else {
-            historicalSales.push(null);
-            const baseQty = priorMonthAverage[m] > 0 ? priorMonthAverage[m] : Math.max(12, Math.round(prod.stock * 0.8));
-            const weather = getWeatherMultiplier(m, prod.category);
-            const cohort = getCohortTurnoverMultiplier(m);
-            const predicted = Math.max(3, Math.round(baseQty * weather * cohort));
-            predictedSales.push(predicted);
-          }
-        }
-
-        return {
-          product: prod,
-          historicalSales,
-          predictedSales,
-          currentMonthForecastTotal: (predictedSales[currentMonth] || historicalSales[currentMonth] || 0) as number,
-          restockCountPerPoint,
-          color
-        };
-      });
-
-      return {
-        timeframe: 'year',
-        labels,
-        isFuturePoint,
-        restockEvents,
-        productsData,
-        totalForecastThisMonth: productsData.reduce((sum, p) => sum + p.currentMonthForecastTotal, 0),
-        weatherFactorSummary: 'Ajustement météo : Chaud en hausse l\'hiver (+45%), Frais en hausse au printemps (+35%)',
-        turnoverFactorSummary: 'Renouvellement générationnel : 3 classes entrantes en septembre (+15%), 3 terminales sortantes en juin'
-      };
-    } else {
-      // VUE MENSUELLE DÉTAILLÉE : 1..DaysInMonth avec projection sur les jours restants jusqu'à la fin du mois
-      const numMonth = Number(month);
-      const daysInMonth = new Date(year, numMonth + 1, 0).getDate();
-      const currentDay = (isCurrentYear && numMonth === currentMonth) ? now.getDate() : (isPastYear ? daysInMonth : 1);
-
-      const labels: string[] = [];
-      const isFuturePoint: boolean[] = [];
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        labels.push(`${day} ${monthNames[numMonth]}`);
-        isFuturePoint.push((isCurrentYear && numMonth === currentMonth) ? day > currentDay : !isPastYear);
-      }
-
-      // Restocks consolidés par jour
-      const restockEvents: { label: string; count: number; products: string[] }[] = [];
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dRestocks = this.restocks.filter(r => {
-          const d = new Date(r.timestamp);
-          return d.getFullYear() === year && d.getMonth() === numMonth && d.getDate() === day;
-        });
-        const count = dRestocks.reduce((sum, r) => sum + r.quantityAdded, 0);
-        const prodNames = Array.from(new Set(dRestocks.map(r => r.productName)));
-        restockEvents.push({ label: `${day} ${monthNames[numMonth]}`, count, products: prodNames });
-      }
-
-      let totalForecastThisMonth = 0;
-
-      const productsData = this.products.map((prod, pIdx) => {
-        const color = palette[pIdx % palette.length];
-        const historicalSales: (number | null)[] = [];
-        const predictedSales: (number | null)[] = [];
-        const restockCountPerPoint: number[] = [];
-
-        let pastTotalSold = 0;
-        let pastDaysCount = 0;
-
-        for (let day = 1; day <= daysInMonth; day++) {
-          const dSales = this.sales.filter(s => {
-            const d = new Date(s.timestamp);
-            return d.getFullYear() === year && d.getMonth() === numMonth && d.getDate() === day;
-          });
-          let soldToday = 0;
-          dSales.forEach(s => {
-            const it = s.items.find(i => i.productId === prod.id);
-            if (it) soldToday += it.quantity;
-          });
-
-          const dRestocks = this.restocks.filter(r => {
-            const d = new Date(r.timestamp);
-            return d.getFullYear() === year && d.getMonth() === numMonth && d.getDate() === day && r.productId === prod.id;
-          });
-          const restockQty = dRestocks.reduce((sum, r) => sum + r.quantityAdded, 0);
-          restockCountPerPoint.push(restockQty);
-
-          const isFuture = (isCurrentYear && numMonth === currentMonth) ? day > currentDay : !isPastYear;
-
-          if (!isFuture) {
-            historicalSales.push(soldToday);
-            pastTotalSold += soldToday;
-            pastDaysCount++;
-          }
-        }
-
-        const rawDailyRate = pastDaysCount > 0 ? (pastTotalSold / pastDaysCount) : 1.2;
-        const weather = getWeatherMultiplier(numMonth, prod.category);
-        const cohort = getCohortTurnoverMultiplier(numMonth);
-        const projectedDailyRate = Number((Math.max(0.2, rawDailyRate * weather * cohort)).toFixed(2));
-
-        let forecastRemaining = 0;
-
-        for (let day = 1; day <= daysInMonth; day++) {
-          const isFuture = (isCurrentYear && numMonth === currentMonth) ? day > currentDay : !isPastYear;
-          if (!isFuture) {
-            if (day === currentDay && isCurrentYear && numMonth === currentMonth) {
-              predictedSales.push(historicalSales[day - 1]);
-            } else {
-              predictedSales.push(null);
-            }
-          } else {
-            historicalSales.push(null);
-            const dateObj = new Date(year, numMonth, day);
-            const dayOfWeek = dateObj.getDay();
-            let dayWeight = 1.0;
-            if (dayOfWeek === 0) dayWeight = 0;
-            else if (dayOfWeek === 6) dayWeight = 0.3;
-            else if (dayOfWeek === 3) dayWeight = 0.7;
-            else if (dayOfWeek === 4 || dayOfWeek === 5) dayWeight = 1.25;
-
-            const dayPred = Math.round(projectedDailyRate * dayWeight);
-            predictedSales.push(dayPred);
-            forecastRemaining += dayPred;
-          }
-        }
-
-        const totalMonthProjected = pastTotalSold + forecastRemaining;
-        totalForecastThisMonth += totalMonthProjected;
-
-        return {
-          product: prod,
-          historicalSales,
-          predictedSales,
-          currentMonthForecastTotal: totalMonthProjected,
-          restockCountPerPoint,
-          color
-        };
-      });
-
-      return {
-        timeframe: 'month',
-        labels,
-        isFuturePoint,
-        restockEvents,
-        productsData,
-        totalForecastThisMonth,
-        weatherFactorSummary: 'Modulation météo : Chaud en hausse l\'hiver (+45%), Frais en hausse au printemps (+35%)',
-        turnoverFactorSummary: 'Démographie : rotation de 3 classes (rentrée active en sept-oct, départs fin mai)'
-      };
-    }
-  }
-
+  // --- Export / Import & Profil d'application ---
   public exportData(): Record<string, any> {
     return {
-      version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.9',
+      version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.10',
       exportDate: new Date().toISOString(),
       products: this.products,
       sales: this.sales,
@@ -2757,7 +1366,7 @@ class DatabaseService {
   }
 
   public setAppProfile(profile: AppProfile): void {
-    this.safeSetItem(STORAGE_KEYS.APP_PROFILE, profile);
+    storageService.safeSetItem(STORAGE_KEYS.APP_PROFILE, profile);
     this.logActivity('INFO', `Profil de l'application basculé sur "${profile === 'visco' ? 'Vie Scolaire' : 'Foyer'}"`);
     this.notify();
   }
@@ -2775,73 +1384,7 @@ class DatabaseService {
     return computeCrc32Hex(JSON.stringify(payload));
   }
 
-  public visaCashWithdrawal(sessionId: string, visaBy: string, visaNotes?: string): boolean {
-    const session = this.sessions.find(s => s.id === sessionId);
-    if (!session || !session.cashWithdrawal) return false;
-
-    session.cashWithdrawal.visaBy = visaBy;
-    session.cashWithdrawal.visaDate = new Date().toISOString();
-    session.cashWithdrawal.visaNotes = visaNotes || '';
-
-    this.saveSessions();
-    this.logActivity('INFO', `Visa de remise d'espèces validé par ${visaBy} pour la séance de ${session.volunteerName}`);
-    this.notify();
-    return true;
-  }
-
-  public getCashWithdrawals(): EnrichedCashWithdrawal[] {
-    return this.sessions
-      .filter(s => Boolean(s.cashWithdrawal))
-      .map(s => ({
-        ...s.cashWithdrawal!,
-        sessionId: s.id,
-        sessionEndTime: s.endTime || s.startTime,
-        volunteerName: s.volunteerName
-      }))
-      .sort((a, b) => new Date(b.sessionEndTime).getTime() - new Date(a.sessionEndTime).getTime());
-  }
-
-  // =========================================================================
-  // GESTION DU PROFIL BÉNÉVOLE (PHOTO DE PROFIL, THÈME, COULEUR)
-  // =========================================================================
-
-  public updateVolunteerAvatar(volunteerId: string, avatarUrl: string): { success: boolean; message: string } {
-    const volunteer = this.volunteers.find(v => v.id === volunteerId);
-    if (!volunteer) return { success: false, message: 'Utilisateur introuvable' };
-
-    volunteer.avatarUrl = avatarUrl;
-    if (this.currentVolunteer?.id === volunteerId) {
-      this.currentVolunteer.avatarUrl = avatarUrl;
-    }
-
-    this.saveVolunteers();
-    this.logActivity('INFO', `Photo de profil mise à jour pour @${volunteer.username}`);
-    this.notify();
-    return { success: true, message: 'Photo de profil enregistrée avec succès' };
-  }
-
-  public updateVolunteerThemeSettings(volunteerId: string, settings: VolunteerThemeSettings): { success: boolean; message: string } {
-    const volunteer = this.volunteers.find(v => v.id === volunteerId);
-    if (!volunteer) return { success: false, message: 'Utilisateur introuvable' };
-
-    volunteer.themeSettings = {
-      ...(volunteer.themeSettings || {}),
-      ...settings
-    };
-
-    if (this.currentVolunteer?.id === volunteerId) {
-      this.currentVolunteer.themeSettings = volunteer.themeSettings;
-    }
-
-    this.saveVolunteers();
-    this.notify();
-    return { success: true, message: 'Préférences d\'affichage du chat enregistrées' };
-  }
-
-  // =========================================================================
-  // GESTION DU CHAT LOCAL & DÉCENTRALISÉ
-  // =========================================================================
-
+  // --- Chat & Messagerie ---
   public getChatSettings(): ChatSettings {
     return { ...this.chatSettings };
   }
@@ -2851,7 +1394,7 @@ class DatabaseService {
       ...this.chatSettings,
       ...settings
     };
-    this.safeSetItem(STORAGE_KEYS.CHAT_SETTINGS, JSON.stringify(this.chatSettings));
+    storageService.safeSetItem(STORAGE_KEYS.CHAT_SETTINGS, JSON.stringify(this.chatSettings));
     if (this.chatSettings.retentionDays > 0) {
       this.purgeExpiredChatMessages();
     }
@@ -2860,15 +1403,7 @@ class DatabaseService {
   }
 
   public getChatChannels(forVolunteer?: Volunteer | null): ChatChannel[] {
-    const user = forVolunteer || this.currentVolunteer;
-    const isSpecialAccess = user?.isAdmin || this.getAppProfile() === 'visco';
-
-    return this.chatChannels.filter(c => {
-      if (!c.isPrivate) return true;
-      if (isSpecialAccess) return true;
-      if (user && c.memberIds && c.memberIds.includes(user.id)) return true;
-      return false;
-    });
+    return chatService.getChatChannels(this.chatChannels, this.currentVolunteer, this.getAppProfile(), forVolunteer);
   }
 
   public createChatChannel(name: string, description: string, isPrivate: boolean, memberIds?: string[]): { success: boolean; message: string; channel?: ChatChannel } {
@@ -2890,7 +1425,7 @@ class DatabaseService {
 
     this.chatChannels.push(newChan);
     this.saveChatChannels();
-    this.broadcastChatUpdate();
+    chatService.broadcastChatUpdate();
     this.notify();
     return { success: true, message: `Groupe "${cleanName}" créé`, channel: newChan };
   }
@@ -2923,60 +1458,25 @@ class DatabaseService {
       };
       this.chatChannels.push(channel);
       this.saveChatChannels();
-      this.broadcastChatUpdate();
+      chatService.broadcastChatUpdate();
       this.notify();
     }
     return channel;
   }
 
   public getUnreadDirectMessagesCount(): number {
-    const me = this.currentVolunteer;
-    if (!me || !this.chatSettings.enabled) return 0;
-
-    let readState: Record<string, string> = {};
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.CHAT_READ_STATE);
-      if (stored) readState = JSON.parse(stored);
-    } catch {}
-
-    // Récupérer tous les canaux DM où je suis membre
-    const myDmChannels = this.chatChannels.filter(c => 
-      c.isDirectMessage && c.memberIds && c.memberIds.includes(me.id)
+    return chatService.getUnreadDirectMessagesCount(
+      this.chatChannels,
+      this.chatMessages,
+      this.chatSettings,
+      this.currentVolunteer
     );
-
-    let unreadCount = 0;
-    myDmChannels.forEach(c => {
-      const lastReadIso = readState[c.id] || '1970-01-01T00:00:00.000Z';
-      const unreadInChan = this.chatMessages.filter(m => 
-        m.channelId === c.id && 
-        m.authorId !== me.id && 
-        new Date(m.timestamp).getTime() > new Date(lastReadIso).getTime()
-      );
-      unreadCount += unreadInChan.length;
-    });
-
-    return unreadCount;
   }
 
   public markChannelAsRead(channelId: string): void {
-    const me = this.currentVolunteer;
-    if (!me) return;
-
-    let readState: Record<string, string> = {};
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.CHAT_READ_STATE);
-      if (stored) readState = JSON.parse(stored);
-    } catch {}
-
-    readState[channelId] = new Date().toISOString();
-    try {
-      localStorage.setItem(STORAGE_KEYS.CHAT_READ_STATE, JSON.stringify(readState));
-    } catch {}
-    // Ne pas appeler this.notify() ici car cette méthode est appelée lors du render() de ChatView,
-    // ce qui provoquerait une boucle de récursion infinie (Maximum call stack size exceeded).
+    chatService.markChannelAsRead(channelId, this.currentVolunteer);
   }
 
-  // --- Gestion du Moteur de Données (SQLite) ---
   public getDatabaseConfig(): DatabaseConnectionConfig {
     return { ...this.databaseConfig };
   }
@@ -2996,13 +1496,8 @@ class DatabaseService {
     return { success: true, message: `Base SQLite embarquée vérifiée et synchronisée.` };
   }
 
-
-
   public getChatMessages(channelId: string): ChatMessage[] {
-    if (!this.chatSettings.enabled) return [];
-    return this.chatMessages
-      .filter(m => m.channelId === channelId)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return chatService.getChatMessages(this.chatMessages, this.chatSettings, channelId);
   }
 
   public sendChatMessage(channelId: string, content: string): { success: boolean; message: string; chatMessage?: ChatMessage } {
@@ -3020,14 +1515,11 @@ class DatabaseService {
       return { success: false, message: 'Vous devez être connecté pour envoyer un message' };
     }
 
-    // Calcul d'une signature d'authenticité dérivée de l'auteur et du mot de passe (anti-usurpation)
     const timestamp = new Date().toISOString();
     const signaturePayload = `${user.id}:${user.username}:${cleanContent}:${timestamp}:${user.password}`;
     const signature = computeCrc32Hex(signaturePayload);
 
     const msgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
-    // OPTIMISATION CRITIQUE : Ne jamais stocker l'URL d'avatar en Base64 dans ChatMessage
-    // L'avatar est résolu dynamiquement via authorId pour économiser 99% d'espace et éliminer QuotaExceededError
     const newMsg: ChatMessage = {
       id: msgId,
       channelId,
@@ -3044,45 +1536,23 @@ class DatabaseService {
     this.chatMessages.push(newMsg);
     this.saveChatMessages();
     this.markChannelAsRead(channelId);
-    this.broadcastChatUpdate();
+    chatService.broadcastChatUpdate();
     this.notify();
 
     return { success: true, message: 'Message envoyé', chatMessage: newMsg };
   }
 
-  // Réconciliation incrémentale de messages reçus d'un autre poste ou onglet
   public mergeIncomingChatMessages(incoming: ChatMessage[]): number {
-    if (!this.chatSettings.enabled || !Array.isArray(incoming) || incoming.length === 0) return 0;
-
-    let addedCount = 0;
-    const existingIds = new Set(this.chatMessages.map(m => m.id));
-
-    incoming.forEach(inc => {
-      if (!inc.id || existingIds.has(inc.id)) return;
-
-      // Nettoyer l'avatar Base64 s'il est présent
-      if (inc.authorAvatarUrl && inc.authorAvatarUrl.startsWith('data:')) {
-        delete inc.authorAvatarUrl;
-      }
-
-      // Vérification de sécurité / intégrité du message
-      if (inc.authorId && inc.signature) {
-        const author = this.volunteers.find(v => v.id === inc.authorId);
-        if (author) {
-          const expectedSig = computeCrc32Hex(`${author.id}:${author.username}:${inc.content}:${inc.timestamp}:${author.password}`);
-          if (inc.signature !== expectedSig) {
-            this.logActivity('SECURITY', `Message rejeté pour usurpation suspectée sur @${author.username}`);
-            return;
-          }
-        }
-      }
-
-      this.chatMessages.push(inc);
-      existingIds.add(inc.id);
-      addedCount++;
-    });
+    const { addedCount, mergedMessages } = chatService.mergeIncomingChatMessages(
+      this.chatMessages,
+      incoming,
+      this.chatSettings,
+      this.volunteers,
+      msg => this.logActivity('SECURITY', msg)
+    );
 
     if (addedCount > 0) {
+      this.chatMessages = mergedMessages;
       this.purgeExpiredChatMessages();
       this.saveChatMessages();
       this.notify();
@@ -3092,15 +1562,9 @@ class DatabaseService {
   }
 
   public purgeExpiredChatMessages(): number {
-    const days = this.chatSettings.retentionDays;
-    if (days <= 0) return 0;
-
-    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
-    const initialCount = this.chatMessages.length;
-    this.chatMessages = this.chatMessages.filter(m => new Date(m.timestamp).getTime() >= cutoff);
-    const purged = initialCount - this.chatMessages.length;
-
+    const { purged, remaining } = chatService.purgeExpiredChatMessages(this.chatMessages, this.chatSettings.retentionDays);
     if (purged > 0) {
+      this.chatMessages = remaining;
       this.saveChatMessages();
     }
     return purged;
@@ -3110,22 +1574,8 @@ class DatabaseService {
     return [...this.chatMessages];
   }
 
-  public saveChatMessages(): void {
-    this.safeSetItem(STORAGE_KEYS.CHAT_MESSAGES, JSON.stringify(this.chatMessages));
-  }
-
-  public saveChatChannels(): void {
-    this.safeSetItem(STORAGE_KEYS.CHAT_CHANNELS, JSON.stringify(this.chatChannels));
-  }
-
-  private broadcastChatUpdate(): void {
-    try {
-      if (typeof BroadcastChannel !== 'undefined') {
-        const channel = new BroadcastChannel('openmdl_chat_sync');
-        channel.postMessage({ type: 'CHAT_UPDATED', timestamp: Date.now() });
-        channel.close();
-      }
-    } catch { }
+  private saveVolunteerPerks(): void {
+    perkService.saveVolunteerPerks(this.volunteerPerks);
   }
 
   public resetAll(): void {

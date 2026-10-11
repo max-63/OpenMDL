@@ -110,10 +110,10 @@ Les paquets pré-compilés se trouvent dans le dossier `dist-installers/` :
 
 | Système d'exploitation | Format de paquet | Utilisation |
 | :--- | :--- | :--- |
-| **Linux Mint / Ubuntu / Debian** | `OpenMDL_1.0.10_amd64.deb` | Double-clic pour installer via la logithèque (gère automatiquement les dépendances) |
-| **Fedora / RedHat / openSUSE** | `OpenMDL-1.0.10-1.x86_64.rpm` | Installateur RPM natif |
-| **Toutes distributions Linux** | `OpenMDL_1.0.10_amd64.AppImage` | Fichier portable autonome : clic droit > Exécuter, aucune installation nécessaire |
-| **Windows 10 / 11** | `OpenMDL_1.0.10_x64-setup.exe` | Installateur Windows NSIS complet (avec raccourci Bureau et Menu Démarrer) |
+| **Linux Mint / Ubuntu / Debian** | `OpenMDL_1.0.11_amd64.deb` | Double-clic pour installer via la logithèque (gère automatiquement les dépendances) |
+| **Fedora / RedHat / openSUSE** | `OpenMDL-1.0.11-1.x86_64.rpm` | Installateur RPM natif |
+| **Toutes distributions Linux** | `OpenMDL_1.0.11_amd64.AppImage` | Fichier portable autonome : clic droit > Exécuter, aucune installation nécessaire |
+| **Windows 10 / 11** | `OpenMDL_1.0.11_x64-setup.exe` | Installateur Windows NSIS complet (avec raccourci Bureau et Menu Démarrer) |
 
 ---
 

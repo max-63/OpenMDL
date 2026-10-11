@@ -1,4 +1,4 @@
-import { Product, Sale, Session, Volunteer, CartItem, PerkSettings, SaleItem } from './index';
+import type { Product, Sale, Session, Volunteer, CartItem, PerkSettings, SaleItem } from './index';
 
 export type AddonCategory = 'caisse' | 'marketing' | 'utilitaire' | 'jeu' | 'autre';
 

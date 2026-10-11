@@ -18,6 +18,12 @@
     "core:window:allow-is-maximized",
     "core:window:allow-is-fullscreen",
     "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-set-size",
+    "core:window:allow-set-resizable",
+    "core:window:allow-set-position",
+    "core:window:allow-inner-size",
+    "core:window:allow-outer-size",
     "updater:default",
     "process:default"
   ]

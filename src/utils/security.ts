@@ -23,5 +23,5 @@ export function escapeHtml(str: unknown): string {
  */
 export function sanitizeText(str: string): string {
   if (!str) return '';
-  return str.trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+  return str.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
 }

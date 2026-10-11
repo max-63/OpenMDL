@@ -369,6 +369,11 @@ export const Icons = {
       <polyline points="9 18 15 12 9 6"/>
     </svg>`,
 
+  chevronDown: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="6 9 12 15 18 9"/>
+    </svg>`,
+
   puzzle: (className = 'w-5 h-5') => `
     <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M19.439 7.85c-.049-.322.059-.648.289-.878l1.568-1.568a1.2 1.2 0 0 0 0-1.704l-1.996-1.996a1.2 1.2 0 0 0-1.704 0l-1.568 1.568a.71.71 0 0 1-.878.29c-1.202-.18-2.05-1.127-2.05-2.312V1.2A1.2 1.2 0 0 0 11.9 0H9.9a1.2 1.2 0 0 0-1.2 1.2v.05c0 1.185-.848 2.132-2.05 2.312a.71.71 0 0 1-.878-.29L4.204 1.704a1.2 1.2 0 0 0-1.704 0L.504 3.7a1.2 1.2 0 0 0 0 1.704l1.568 1.568a.71.71 0 0 1 .29.878c-.18 1.202-1.127 2.05-2.312 2.05H0v2.2A1.2 1.2 0 0 0 1.2 13.3h.05c1.185 0 2.132.848 2.312 2.05a.71.71 0 0 1-.29.878l-1.568 1.568a1.2 1.2 0 0 0 0 1.704l1.996 1.996a1.2 1.2 0 0 0 1.704 0l1.568-1.568a.71.71 0 0 1 .878-.29c1.202.18 2.05 1.127 2.05 2.312v.05a1.2 1.2 0 0 0 1.2 1.2h2.2a1.2 1.2 0 0 0 1.2-1.2v-.05c0-1.185.848-2.132 2.05-2.312a.71.71 0 0 1 .878.29l1.568 1.568a1.2 1.2 0 0 0 1.704 0l1.996-1.996a1.2 1.2 0 0 0 0-1.704l-1.568-1.568a.71.71 0 0 1-.29-.878c.18-1.202 1.127-2.05 2.312-2.05h.05a1.2 1.2 0 0 0 1.2-1.2v-2.2h-.05c-1.185 0-2.132-.848-2.312-2.05z"/>
@@ -450,6 +455,31 @@ export const Icons = {
     <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/>
       <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>
+    </svg>`,
+
+
+  smile: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+      <line x1="9" y1="9" x2="9.01" y2="9"/>
+      <line x1="15" y1="9" x2="15.01" y2="9"/>
+    </svg>`,
+
+  qrCode: (className = 'w-5 h-5') => `
+    <svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect width="5" height="5" x="3" y="3" rx="1"/>
+      <rect width="5" height="5" x="16" y="3" rx="1"/>
+      <rect width="5" height="5" x="3" y="16" rx="1"/>
+      <path d="M21 16h-3a2 2 0 0 0-2 2v3"/>
+      <path d="M21 21v.01"/>
+      <path d="M12 7v3a2 2 0 0 1-2 2H7"/>
+      <path d="M3 12h.01"/>
+      <path d="M12 3h.01"/>
+      <path d="M12 16v.01"/>
+      <path d="M16 12h1"/>
+      <path d="M21 12v.01"/>
+      <path d="M12 21v-1"/>
     </svg>`
 };
 

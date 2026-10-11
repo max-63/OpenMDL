@@ -1,4 +1,4 @@
-import { AddonPackage } from '../types/addon';
+import type { AddonPackage } from '../types/addon';
 
 export interface DiskBackupInfo {
   fileName: string;

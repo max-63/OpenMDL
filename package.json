@@ -1,7 +1,7 @@
 {
   "name": "openmdl",
   "private": true,
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Logiciel de caisse & gestion de foyer open source pour la Maison des Lycéens (MDL)",
   "type": "module",
   "scripts": {
@@ -14,7 +14,8 @@
     "build:deb": "tauri build --bundles deb",
     "build:rpm": "tauri build --bundles rpm",
     "build:win": "tauri build --target x86_64-pc-windows-gnu --bundles nsis",
-    "build:all": "./build-all.sh"
+    "build:all": "./build-all.sh",
+    "test": "node --test-reporter=spec --test src/services/db.test.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

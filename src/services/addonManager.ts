@@ -1,7 +1,6 @@
 import { AddonPackage, IOpenMdlApi, RegisteredTab, RegisteredWidget, OpenMdlEventType, OpenMdlEventListener } from '../types/addon';
 import { Product, Sale } from '../types';
 import { db } from './db';
-import { SAMPLE_ADDON_CALCULATOR, SAMPLE_ADDON_TOMBOLA } from './addonTemplates';
 import { Marked } from 'marked';
 import { transform } from 'sucrase';
 import Prism from 'prismjs';
@@ -188,7 +187,16 @@ export class AddonManager {
     try {
       const raw = localStorage.getItem(ADDONS_STORAGE_KEY);
       if (raw) {
-        this.packages = JSON.parse(raw);
+        let loaded: AddonPackage[] = JSON.parse(raw);
+        // Retirer les addons de démonstration par défaut s'ils étaient présents
+        const hadDefaults = loaded.some(p => p.manifest.id === 'monnaie-calculator' || p.manifest.id === 'foyer-tombola');
+        if (hadDefaults) {
+          this.unloadAddon('monnaie-calculator');
+          this.unloadAddon('foyer-tombola');
+          loaded = loaded.filter(p => p.manifest.id !== 'monnaie-calculator' && p.manifest.id !== 'foyer-tombola');
+        }
+        this.packages = loaded;
+
         // Migration transparente des anciens chemins plats vers l'arborescence standard
         let hasMigrations = false;
         this.packages.forEach(pkg => {
@@ -202,15 +210,12 @@ export class AddonManager {
             }
           });
         });
-        if (hasMigrations) {
+        if (hasMigrations || hadDefaults) {
           this.savePackages();
         }
       } else {
-        // Initialiser avec les addons préinstallés officiels
-        this.packages = [
-          JSON.parse(JSON.stringify(SAMPLE_ADDON_CALCULATOR)),
-          JSON.parse(JSON.stringify(SAMPLE_ADDON_TOMBOLA))
-        ];
+        // Aucun addon par défaut : liste vierge
+        this.packages = [];
         this.savePackages();
       }
     } catch (e) {

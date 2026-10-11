@@ -5,9 +5,11 @@
     "lib": ["ESNext", "DOM"],
     "types": ["vite/client"],
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["**/*.test.ts"]
 }

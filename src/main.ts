@@ -22,6 +22,7 @@ import { TerminalPosComponent } from './components/TerminalPos';
 import { syncService } from './services/syncService';
 import { AppDialog } from './components/AppDialog';
 import { PaymentMethod } from './types';
+import { setupWindowResizeHandles } from './utils/windowResize';
 
 class App {
   private appRoot: HTMLElement;
@@ -48,6 +49,23 @@ class App {
       () => this.render()
     );
     (window as any).__OPENMDL_CART__ = this.cart;
+    if (!(window as any).OpenMDL) {
+      (window as any).OpenMDL = {};
+    }
+    (window as any).OpenMDL.previewImage = (src: string) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-enter cursor-pointer';
+      overlay.innerHTML = `
+        <div class="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
+          <img src="${src}" class="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl border border-white/10" />
+          <button class="mt-3 px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold backdrop-blur-md transition-all">
+            Fermer l'aperçu
+          </button>
+        </div>
+      `;
+      overlay.addEventListener('click', () => overlay.remove());
+      document.body.appendChild(overlay);
+    };
 
     // Écouter les changements de la base de données
     db.subscribe(() => {
@@ -357,5 +375,6 @@ class App {
   } catch (err) {
     console.warn('Initialisation SQLite Tauri :', err);
   }
+  setupWindowResizeHandles();
   new App();
 })();

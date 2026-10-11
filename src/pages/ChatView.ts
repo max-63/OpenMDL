@@ -3,6 +3,8 @@ import { Icons } from '../components/Icons';
 import { escapeHtml } from '../utils/security';
 import { ChatMessage, ChatChannel } from '../types';
 import { AppDialog } from '../components/AppDialog';
+import { formatChatMessage, compressImageToDataUrl, CHAT_EMOJIS } from '../utils/chatFormatter';
+import { syncService } from '../services/syncService';
 
 export class ChatView {
   private activeChannelId: string = 'all';
@@ -116,6 +118,16 @@ export class ChatView {
           <div class="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[11px] font-bold border border-slate-200 dark:border-slate-700">
             Rétention : ${chatSettings.retentionDays > 0 ? `${chatSettings.retentionDays}j` : 'Illimitée'}
           </div>
+
+          <button 
+            type="button" 
+            id="btn-lan-mobile-access"
+            class="px-3 py-1.5 rounded-xl bg-purple-600/15 hover:bg-purple-600/25 text-purple-600 dark:text-purple-400 border border-purple-500/25 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow-xs"
+            title="Accéder au logiciel et au chat depuis un téléphone ou PC portable sur le réseau"
+          >
+            ${Icons.qrCode('w-3.5 h-3.5')}
+            <span>Accès Mobile / LAN</span>
+          </button>
 
           <button 
             type="button" 
@@ -240,32 +252,81 @@ export class ChatView {
         </div>
 
         <!-- Zone de discussion & saisie (9 cols) -->
-        <div class="md:col-span-9 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col min-h-0 overflow-hidden">
+        <div class="md:col-span-9 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col min-h-0 overflow-hidden relative">
           
           <!-- Conteneur des bulles de messages -->
           <div id="chat-messages-container" class="flex-1 p-4 overflow-y-auto space-y-3.5 ${bgClasses}">
             ${this.renderMessagesListHtml(messages, current, allVolunteers)}
           </div>
 
-          <!-- Zone de composition de message -->
-          <div class="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2 flex-shrink-0">
-            <input 
-              type="text"
-              id="input-chat-message"
-              placeholder="Écrire un message dans ${activeChannel?.isDirectMessage ? '' : '#'}${escapeHtml(activeChannel?.name || 'Général')}..."
-              value="${escapeHtml(this.messageInputVal)}"
-              autocomplete="off"
-              class="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-orange-500 dark:focus:border-orange-500 text-slate-900 dark:text-white text-xs outline-none transition-all placeholder:text-slate-400"
-            />
-            <button 
-              type="button"
-              id="btn-send-chat-message"
-              class="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0"
-              title="Envoyer (Touche Entrée)"
-            >
-              <span>Envoyer</span>
-              ${Icons.send('w-3.5 h-3.5')}
+          <!-- Prévisualisation d'image attachée si présente -->
+          <div id="chat-attachment-preview" class="hidden px-4 py-2 bg-slate-100 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+              <img id="chat-preview-img" src="" class="w-12 h-12 rounded-xl object-cover border border-slate-300 dark:border-slate-600 shadow-xs" />
+              <div class="text-xs">
+                <span class="font-bold text-slate-800 dark:text-slate-200 block">Photo prête à l'envoi</span>
+                <span class="text-[10px] text-slate-400">Optimisée pour le réseau local</span>
+              </div>
+            </div>
+            <button type="button" id="btn-cancel-attachment" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer" title="Supprimer l'image">
+              ${Icons.x('w-4 h-4')}
             </button>
+          </div>
+
+          <!-- Barre d'outils et sélecteur d'émojis popover -->
+          <div id="chat-emoji-popover" class="hidden absolute bottom-16 left-4 z-30 w-72 max-h-64 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl p-2.5 flex flex-col gap-2 animate-scale-up">
+            <div class="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-700">
+              <span class="text-[11px] font-black uppercase text-slate-400 tracking-wider">Émojis style Reddit (:code:)</span>
+              <button type="button" id="btn-close-emojis" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5">${Icons.x('w-3.5 h-3.5')}</button>
+            </div>
+            <div class="grid grid-cols-6 gap-1 overflow-y-auto max-h-48 p-1 text-lg">
+              ${Object.entries(CHAT_EMOJIS).slice(0, 72).map(([code, emoji]) => `
+                <button type="button" data-emoji-code=":${code}:" title=":${code}:" class="btn-emoji-insert h-9 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center transition-transform hover:scale-125 cursor-pointer">
+                  ${emoji}
+                </button>
+              `).join('')}
+            </div>
+          </div>
+
+          <!-- Zone de composition de message -->
+          <div class="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-2 flex-shrink-0">
+            <!-- Raccourcis d'aide Markdown & boutons d'action rapide -->
+            <div class="flex items-center justify-between text-[11px] text-slate-400 px-1">
+              <div class="flex items-center gap-2">
+                <button type="button" id="btn-toggle-emojis" class="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold transition-colors cursor-pointer" title="Insérer un émoji (:code: comme sur Reddit)">
+                  ${Icons.smile('w-3.5 h-3.5 text-amber-500')}
+                  <span>Émojis</span>
+                </button>
+                <label for="chat-file-input" class="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold transition-colors cursor-pointer" title="Joindre une photo ou image">
+                  ${Icons.image('w-3.5 h-3.5 text-sky-500')}
+                  <span>Image</span>
+                </label>
+                <input type="file" id="chat-file-input" accept="image/*" class="hidden" />
+              </div>
+              <span class="hidden sm:inline font-mono text-[10px] text-slate-400">
+                Format: **gras**, *italique*, \`code\`, :emoji:, ![alt](url)
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <input 
+                type="text"
+                id="input-chat-message"
+                placeholder="Écrire un message... (supporte Markdown, images et :smile:)"
+                value="${escapeHtml(this.messageInputVal)}"
+                autocomplete="off"
+                class="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-orange-500 dark:focus:border-orange-500 text-slate-900 dark:text-white text-xs outline-none transition-all placeholder:text-slate-400 font-medium"
+              />
+              <button 
+                type="button" 
+                id="btn-send-chat-message"
+                class="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0"
+                title="Envoyer (Touche Entrée)"
+              >
+                <span>Envoyer</span>
+                ${Icons.send('w-3.5 h-3.5')}
+              </button>
+            </div>
           </div>
 
         </div>
@@ -328,13 +389,13 @@ export class ChatView {
           </div>
 
           <div 
-            class="px-4 py-2.5 rounded-2xl text-xs leading-relaxed shadow-xs break-words ${isMe
+            class="chat-bubble-content px-4 py-2.5 rounded-2xl text-xs leading-relaxed shadow-xs break-words ${isMe
               ? 'rounded-tr-xs text-white'
               : 'rounded-tl-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100'
             }"
             style="${isMe ? `background-color: ${authorBubbleColor || '#ea580c'}` : ''}"
           >
-            ${escapeHtml(msg.content)}
+            ${formatChatMessage(msg.content)}
           </div>
         </div>
 
@@ -390,18 +451,127 @@ export class ChatView {
       });
     });
 
-    // Envoi de message sans flash ni reload de page
+    // Éléments de saisie de message
     const input = container.querySelector('#input-chat-message') as HTMLInputElement;
     const btnSend = container.querySelector('#btn-send-chat-message') as HTMLButtonElement;
 
+    // Gestion des pièces jointes d'image
+    let pendingImageDataUrl: string | null = null;
+    const attachmentPreview = container.querySelector('#chat-attachment-preview') as HTMLElement;
+    const previewImg = container.querySelector('#chat-preview-img') as HTMLImageElement;
+    const btnCancelAttachment = container.querySelector('#btn-cancel-attachment') as HTMLButtonElement;
+    const fileInput = container.querySelector('#chat-file-input') as HTMLInputElement;
+
+    const setAttachment = (dataUrl: string | null) => {
+      pendingImageDataUrl = dataUrl;
+      if (dataUrl && attachmentPreview && previewImg) {
+        previewImg.src = dataUrl;
+        attachmentPreview.classList.remove('hidden');
+        attachmentPreview.classList.add('flex');
+      } else if (attachmentPreview) {
+        attachmentPreview.classList.add('hidden');
+        attachmentPreview.classList.remove('flex');
+        if (previewImg) previewImg.src = '';
+      }
+    };
+
+    btnCancelAttachment?.addEventListener('click', () => {
+      setAttachment(null);
+      if (fileInput) fileInput.value = '';
+    });
+
+    fileInput?.addEventListener('change', async (e) => {
+      const target = e.target as HTMLInputElement;
+      const file = target.files?.[0];
+      if (!file) return;
+
+      try {
+        const compressed = await compressImageToDataUrl(file);
+        setAttachment(compressed);
+        input?.focus();
+      } catch (err) {
+        AppDialog.alert({
+          title: 'Image non supportée',
+          message: 'Impossible de traiter cette image. Veuillez sélectionner un format PNG, JPG ou WEBP.',
+          type: 'warning'
+        });
+      }
+    });
+
+    // Support du copier-coller direct d'image (Ctrl+V) dans le champ de saisie
+    input?.addEventListener('paste', async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            try {
+              const compressed = await compressImageToDataUrl(file);
+              setAttachment(compressed);
+            } catch {}
+            break;
+          }
+        }
+      }
+    });
+
+    // Popover des Émojis style Reddit (:code:)
+    const emojiPopover = container.querySelector('#chat-emoji-popover') as HTMLElement;
+    const btnToggleEmojis = container.querySelector('#btn-toggle-emojis') as HTMLButtonElement;
+    const btnCloseEmojis = container.querySelector('#btn-close-emojis') as HTMLButtonElement;
+
+    btnToggleEmojis?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      emojiPopover?.classList.toggle('hidden');
+    });
+
+    btnCloseEmojis?.addEventListener('click', () => {
+      emojiPopover?.classList.add('hidden');
+    });
+
+    container.addEventListener('click', (e) => {
+      if (emojiPopover && !emojiPopover.contains(e.target as Node) && e.target !== btnToggleEmojis) {
+        emojiPopover.classList.add('hidden');
+      }
+    });
+
+    container.querySelectorAll('.btn-emoji-insert').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const code = (e.currentTarget as HTMLElement).getAttribute('data-emoji-code');
+        if (code && input) {
+          const start = input.selectionStart || input.value.length;
+          const end = input.selectionEnd || input.value.length;
+          const textBefore = input.value.substring(0, start);
+          const textAfter = input.value.substring(end);
+          input.value = `${textBefore}${code} ${textAfter}`;
+          input.focus();
+          const newPos = start + code.length + 1;
+          input.setSelectionRange(newPos, newPos);
+        }
+        emojiPopover?.classList.add('hidden');
+      });
+    });
+
+    // Envoi de message sans flash ni reload de page
     const handleSend = () => {
       const text = input?.value.trim() || '';
-      if (!text) return;
+      if (!text && !pendingImageDataUrl) return;
 
-      const res = db.sendChatMessage(this.activeChannelId, text);
+      // Si une image est attachée, on l'insère au format Markdown ![image](dataUrl)
+      let fullContent = text;
+      if (pendingImageDataUrl) {
+        const imageMarkdown = `![Photo jointe](${pendingImageDataUrl})`;
+        fullContent = fullContent ? `${fullContent}\n\n${imageMarkdown}` : imageMarkdown;
+      }
+
+      const res = db.sendChatMessage(this.activeChannelId, fullContent);
       if (res.success && res.chatMessage) {
         input.value = '';
         this.messageInputVal = '';
+        setAttachment(null);
+        if (fileInput) fileInput.value = '';
         input.focus();
 
         const messagesBox = container.querySelector('#chat-messages-container');
@@ -440,6 +610,11 @@ export class ChatView {
         e.preventDefault();
         handleSend();
       }
+    });
+
+    // Modale Accès Mobile / LAN (WiFi / Partage de connexion / Réseau lycée)
+    container.querySelector('#btn-lan-mobile-access')?.addEventListener('click', () => {
+      this.openLanMobileModal();
     });
 
     // Création de groupe avec sélection des membres
@@ -699,6 +874,108 @@ export class ChatView {
       const nameInput = modalContent.querySelector('#new-group-name') as HTMLInputElement;
       nameInput?.focus();
     }, 100);
+  }
+
+  private async openLanMobileModal(): Promise<void> {
+    const config = syncService.getConfig();
+    const serverStatus = await syncService.getLanServerStatus();
+    const localIp = await syncService.getLocalIp();
+    const isServerRunning = serverStatus?.running || false;
+    const port = serverStatus?.port || config.lan.port || 4123;
+    const hostIp = localIp !== '127.0.0.1' ? localIp : (serverStatus?.ip || '192.168.1.XX');
+    const accessUrl = `http://${hostIp}:${port}`;
+
+    // Génération d'une URL de QR code visuel simple & propre pour scanner avec l'appareil photo du téléphone
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(accessUrl)}&margin=4`;
+
+    const content = document.createElement('div');
+    content.className = 'space-y-4';
+    content.innerHTML = `
+      <div class="p-4 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-start gap-3.5">
+        <div class="w-10 h-10 rounded-xl bg-orange-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm shadow-orange-500/30">
+          ${Icons.qrCode('w-5 h-5')}
+        </div>
+        <div>
+          <h4 class="text-sm font-black text-slate-900 dark:text-white">Accéder à OpenMDL depuis un smartphone</h4>
+          <p class="text-xs text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
+            Permet aux bénévoles et membres du foyer d'ouvrir le chat, consulter le stock ou pointer des ventes directement depuis leur téléphone.
+          </p>
+        </div>
+      </div>
+
+      <!-- Statut Serveur LAN & Lien direct -->
+      <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">État du Serveur LAN</span>
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${isServerRunning ? 'bg-emerald-500/15 text-emerald-600 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-600 border border-rose-500/30'}">
+            ${isServerRunning ? 'En ligne & Prêt' : 'Serveur arrêté'}
+          </span>
+        </div>
+
+        <div class="flex flex-col sm:flex-row items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+          <div class="w-36 h-36 bg-white p-2 rounded-xl border border-slate-200 shadow-xs flex items-center justify-center flex-shrink-0">
+            <img src="${qrApiUrl}" alt="QR Code d'accès LAN" class="w-full h-full object-contain rounded-lg" onerror="this.parentElement.innerHTML='<span class=\\'text-[10px] text-slate-400 font-mono text-center\\'>Scan URL ci-contre</span>'" />
+          </div>
+          <div class="space-y-2 flex-1 text-center sm:text-left">
+            <div class="text-[11px] font-bold text-slate-400 uppercase">Adresse URL directe</div>
+            <div class="text-sm font-mono font-black text-orange-600 dark:text-orange-400 select-all p-2 rounded-lg bg-orange-50 dark:bg-slate-800 border border-orange-200 dark:border-orange-500/30">
+              ${accessUrl}
+            </div>
+            <div class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Scannez le QR code avec l'appareil photo du téléphone ou saisissez cette adresse dans Chrome / Safari.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Solutions réseau quand il n'y a pas de Wi-Fi ou réseau bridé -->
+      <div class="space-y-2.5">
+        <h5 class="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+          Comment faire si le LAN n'a pas de Wi-Fi ou si le réseau du lycée est bridé ?
+        </h5>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+          <!-- Solution 1 -->
+          <div class="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1.5">
+            <div class="flex items-center gap-1.5 font-bold text-orange-600 dark:text-orange-400">
+              <span class="w-5 h-5 rounded-full bg-orange-500/10 flex items-center justify-center text-[11px] font-black">1</span>
+              <span>Partage 4G/5G Téléphone</span>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Activez le <strong>Partage de connexion</strong> sur le téléphone d'un bénévole et connectez-y le PC. Aucun data n'est consommé pour le chat local, vous êtes sur le même réseau (192.168.43.x).
+            </p>
+          </div>
+
+          <!-- Solution 2 -->
+          <div class="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1.5">
+            <div class="flex items-center gap-1.5 font-bold text-sky-600 dark:text-sky-400">
+              <span class="w-5 h-5 rounded-full bg-sky-500/10 flex items-center justify-center text-[11px] font-black">2</span>
+              <span>Mini Routeur USB de poche</span>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Branchez un mini routeur Wi-Fi autonome (type TP-Link Nano à 15€) alimenté en USB par le PC. Il crée un Wi-Fi local 100% privé sans abonnement internet.
+            </p>
+          </div>
+
+          <!-- Solution 3 -->
+          <div class="p-3 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1.5">
+            <div class="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
+              <span class="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center text-[11px] font-black">3</span>
+              <span>Point d'accès du PC</span>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Activez la fonction <em>Point d'accès sans fil mobile</em> dans les paramètres de votre PC (Windows ou Linux). Les téléphones se connectent directement au PC.
+            </p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    AppDialog.custom({
+      title: 'Accès Réseau Local & Mobiles',
+      content,
+      size: 'lg'
+    });
   }
 
   private scrollToBottom(container: HTMLElement): void {
