@@ -1,4 +1,5 @@
 import { Icons } from '../components/Icons';
+import { openExternalUrl } from '../utils/security';
 
 export class CreditsView {
   public render(): HTMLElement {
@@ -63,9 +64,10 @@ export class CreditsView {
             <span class="text-xs font-bold text-slate-400">Portfolio officiel :</span>
             <a 
               href="https://max-63.github.io" 
+              id="btn-author-portfolio"
               target="_blank" 
               rel="noopener noreferrer"
-              class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-orange-500/10 text-slate-800 hover:text-orange-600 dark:bg-slate-800 dark:hover:bg-orange-500/20 dark:text-slate-200 dark:hover:text-orange-400 text-xs font-bold transition-all border border-slate-200 dark:border-slate-700"
+              class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-orange-500/10 text-slate-800 hover:text-orange-600 dark:bg-slate-800 dark:hover:bg-orange-500/20 dark:text-slate-200 dark:hover:text-orange-400 text-xs font-bold transition-all border border-slate-200 dark:border-slate-700 cursor-pointer"
             >
               <span>max-63.github.io</span>
               ${Icons.externalLink('w-3.5 h-3.5')}
@@ -136,6 +138,11 @@ export class CreditsView {
         </div>
       </div>
     `;
+
+    container.querySelector('#btn-author-portfolio')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      openExternalUrl('https://max-63.github.io');
+    });
 
     return container;
   }

@@ -25,3 +25,21 @@ export function sanitizeText(str: string): string {
   if (!str) return '';
   return str.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
 }
+
+/**
+ * Ouvre une URL dans le navigateur par défaut du système (Edge, Chrome, Firefox, etc.)
+ * Compatible Tauri (Linux xdg-open, Windows start, macOS open) et Fallback Web.
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('open_external_url', { url });
+  } catch (err) {
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch {
+      window.location.href = url;
+    }
+  }
+}
+

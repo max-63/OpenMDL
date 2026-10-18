@@ -23,6 +23,8 @@ import { syncService } from './services/syncService';
 import { AppDialog } from './components/AppDialog';
 import { PaymentMethod } from './types';
 import { setupWindowResizeHandles } from './utils/windowResize';
+import { kofiService } from './services/kofiService';
+import { openExternalUrl } from './utils/security';
 
 class App {
   private appRoot: HTMLElement;
@@ -99,6 +101,15 @@ class App {
         type: 'warning'
       });
       this.render();
+    });
+
+    // Interception globale des liens externes (target="_blank" ou http/https) pour ouverture dans le navigateur système par défaut
+    window.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('a');
+      if (target && target.href && (target.href.startsWith('http://') || target.href.startsWith('https://'))) {
+        e.preventDefault();
+        openExternalUrl(target.href);
+      }
     });
 
     // Support touche F11 pour basculer en plein écran Kiosque immersif
@@ -223,6 +234,7 @@ class App {
     }
 
     // 2. Si connecté -> Layout moderne plein écran avec îlots flottants (style IDE / VS Code)
+    kofiService.hideOverlay();
     this.appRoot.className = 'h-screen w-screen flex flex-col overflow-hidden bg-slate-200/60 dark:bg-[#090d16] p-3 gap-3 antialiased';
 
     const activeSession = db.getActiveSession();
@@ -300,6 +312,9 @@ class App {
         if (currentVolunteer.isAdmin || db.getAppProfile() === 'visco') {
           const settings = new SettingsView(() => this.render());
           pageContainer.appendChild(settings.render());
+          setTimeout(() => {
+            kofiService.showOverlay('settings');
+          }, 100);
         } else {
           this.currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
           this.render();

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OpenMDL",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "identifier": "fr.openmdl.foyer",
   "build": {
     "frontendDist": "../dist",
@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset:; font-src 'self' data:; connect-src 'self' https://api.sumup.com https://github.com https://objects.githubusercontent.com; frame-src 'self';"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://storage.ko-fi.com; style-src 'self' 'unsafe-inline' https://storage.ko-fi.com; img-src 'self' data: blob: asset: https://storage.ko-fi.com https://ko-fi.com; font-src 'self' data: https://storage.ko-fi.com; connect-src 'self' https://api.sumup.com https://github.com https://objects.githubusercontent.com https://storage.ko-fi.com https://ko-fi.com; frame-src 'self' https://ko-fi.com;"
     }
   },
   "plugins": {

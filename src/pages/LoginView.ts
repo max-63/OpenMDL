@@ -1,6 +1,7 @@
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
 import { escapeHtml } from '../utils/security';
+import { kofiService } from '../services/kofiService';
 
 export class LoginView {
   private onLoginSuccess: () => void;
@@ -142,7 +143,7 @@ export class LoginView {
               <span>Sélection rapide de compte</span>
               <span>Rôle</span>
             </div>
-            <div class="space-y-1.5" id="quick-volunteers-list">
+            <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1" id="quick-volunteers-list">
               ${volunteers.map(v => {
                 const isSuspended = !!v.isSuspended;
                 const safeUser = escapeHtml(v.username);
@@ -259,6 +260,7 @@ export class LoginView {
 
       const res = db.authenticate(username, password);
       if (res.success) {
+        kofiService.hideOverlay();
         this.onLoginSuccess();
       } else {
         errorText.textContent = res.message;
@@ -312,6 +314,11 @@ export class LoginView {
         }
       }
     });
+
+    // Initialisation du widget Ko-fi sur la page de login si connexion Internet
+    setTimeout(() => {
+      kofiService.showOverlay('login');
+    }, 100);
 
     return container;
   }

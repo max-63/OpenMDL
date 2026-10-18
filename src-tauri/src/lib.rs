@@ -429,6 +429,32 @@ fn get_local_ip() -> Result<String, String> {
 }
 
 #[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Impossible d'ouvrir l'URL: {}", e))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Impossible d'ouvrir l'URL: {}", e))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|e| format!("Impossible d'ouvrir l'URL: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn write_file_to_path(file_path: String, content: String) -> Result<(), String> {
     if let Some(parent) = std::path::Path::new(&file_path).parent() {
         let _ = fs::create_dir_all(parent);
@@ -570,7 +596,8 @@ pub fn run() {
             sqlite_delete_key,
             sqlite_save_chat_message,
             sqlite_get_chat_messages,
-            sqlite_reconcile_chat_votes
+            sqlite_reconcile_chat_votes,
+            open_external_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,11 +1,12 @@
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
-import { escapeHtml } from '../utils/security';
+import { escapeHtml, openExternalUrl } from '../utils/security';
 import { updater, UpdateState } from '../services/updater';
 import { PerkEligibilityRule, EURO_DENOMINATIONS, CashFloatSettings } from '../types';
 import { syncService, SyncConfig, LanServerStatus } from '../services/syncService';
 import { AppDialog } from '../components/AppDialog';
 import { packBackupBinary, unpackBackupBinary, listDiskBackups, readBackupFromDisk, triggerFileDownload } from '../services/binaryCodec';
+import { kofiService } from '../services/kofiService';
 
 export class SettingsView {
   private onSettingsChanged?: () => void;
@@ -1368,6 +1369,44 @@ export class SettingsView {
             </div>
           </div>
 
+          <!-- 2.2.2bis Carte Soutien au Projet OpenMDL (Ko-fi) -->
+          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3.5 relative overflow-hidden group">
+            <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-orange-500/5 blur-xl pointer-events-none"></div>
+            
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                ${Icons.sparkles('w-4 h-4 text-orange-500')}
+                <span>Soutenir le Projet OpenMDL</span>
+              </div>
+              <span class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                Ko-fi Flottant Actif
+              </span>
+            </div>
+
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+              OpenMDL est développé bénévolement pour les Maisons des Lycéens. Le widget flottant officiel Ko-fi est actif en bas à droite de votre écran. Vous pouvez aussi ouvrir la page directement ci-dessous :
+            </p>
+
+            ${kofiService.checkOnline() ? `
+              <button 
+                type="button" 
+                id="btn-settings-open-kofi"
+                class="w-full py-2.5 px-4 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-md shadow-orange-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer select-none"
+              >
+                <svg class="w-4 h-4 fill-current text-white" viewBox="0 0 24 24">
+                  <path d="M23.881 8.948c-.773-4.085-4.859-4.593-4.859-4.593H.723c-.604 0-.679.798-.679.798s-.082 7.324-.022 11.822c.164 2.424 2.586 2.672 2.586 2.672s8.267-.023 11.966-.049c2.438-.426 2.683-2.566 2.658-3.734 4.352.24 7.422-2.831 6.649-6.916zm-11.062 3.511c-1.246 1.453-4.047 3.974-4.047 3.974s-2.8-2.521-4.047-3.974c-1.333-1.556-1.077-3.65.486-4.567 1.563-.917 3.561.047 3.561.047s1.998-.964 3.561-.047c1.563.917 1.819 3.011.486 4.567zm5.418 1.482c-.389 1.046-1.299 1.454-2.43 1.454h-.688V7.127h.688c1.131 0 2.041.408 2.43 1.454.412 1.11.412 3.253 0 4.363z"/>
+                </svg>
+                <span>Ouvrir Ko-fi dans le navigateur (Adrien Courault)</span>
+                ${Icons.externalLink('w-3.5 h-3.5 text-white/80')}
+              </button>
+            ` : `
+              <div class="p-3 rounded-2xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                ${Icons.wifiOff('w-4 h-4 text-slate-400 flex-shrink-0')}
+                <span>Connexion Internet requise pour afficher le module de soutien Ko-fi.</span>
+              </div>
+            `}
+          </div>
+
           <!-- 2.2.3 Carte Gestion des Données & Sauvegardes Binaires -->
           <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3.5">
             <div class="flex items-center justify-between">
@@ -2441,6 +2480,11 @@ export class SettingsView {
       btn.addEventListener('click', () => {
         (window as any).OpenMDL?.navigation.goTo('credits');
       });
+    });
+
+    container.querySelector('#btn-settings-open-kofi')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      openExternalUrl('https://ko-fi.com/adriencourault');
     });
   }
 

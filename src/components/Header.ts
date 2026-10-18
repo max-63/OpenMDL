@@ -5,6 +5,7 @@ import { syncService } from '../services/syncService';
 import { Icons } from './Icons';
 import { CloseSessionModalComponent } from './CloseSessionModal';
 import { AppDialog } from './AppDialog';
+import { kofiService } from '../services/kofiService';
 
 export class HeaderComponent {
   private currentTab: string;
@@ -316,6 +317,9 @@ export class HeaderComponent {
               </button>
             ` : ''}
             
+            <!-- Soutien Ko-fi (si connecté à Internet) -->
+            <div id="header-kofi-container" class="flex items-center"></div>
+
             <!-- Crédits & Mentions Légales -->
             <button data-tab="credits" class="p-1.5 rounded-xl transition-all cursor-pointer ${this.currentTab === 'credits' ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400' : 'text-slate-500 hover:text-orange-500 hover:bg-orange-500/10'}" title="Crédits & Mentions Légales">
               ${Icons.sparkles('w-4 h-4')}
@@ -510,6 +514,12 @@ export class HeaderComponent {
         }
       }
     });
+
+    // Rendu du bouton Ko-fi si connecté à Internet
+    const kofiContainer = header.querySelector('#header-kofi-container') as HTMLElement | null;
+    if (kofiContainer) {
+      kofiService.renderHotbarWidget(kofiContainer);
+    }
 
     return header;
   }
