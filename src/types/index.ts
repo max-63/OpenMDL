@@ -8,6 +8,7 @@ export interface Product {
   minStockAlert: number;
   imageUrl: string;
   isActive: boolean;
+  isFavorite?: boolean;
 }
 
 export interface CartItem {
@@ -40,6 +41,8 @@ export interface Sale {
   volunteerId: string;
   volunteerName: string;
   sessionId: string;
+  isCancelled?: boolean;
+  cancelledAt?: string;
 }
 
 export interface VolunteerThemeSettings {

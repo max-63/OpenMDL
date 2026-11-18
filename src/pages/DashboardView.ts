@@ -1,7 +1,9 @@
 import { db } from '../services/db';
+import { addonManager } from '../services/addonManager';
 import { CartComponent } from '../components/Cart';
 import { ProductCardComponent } from '../components/ProductCard';
 import { Icons } from '../components/Icons';
+import { escapeHtml } from '../utils/security';
 
 export class DashboardView {
   private searchQuery = '';
@@ -48,7 +50,8 @@ export class DashboardView {
         </div>
 
         <!-- Grille de Produits (défilement interne) -->
-        <div class="flex-1 overflow-y-auto p-5" id="products-grid-container">
+        <div class="flex-1 overflow-y-auto p-5 space-y-4" id="products-grid-container">
+          <div id="addon-widgets-container" class="hidden grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"></div>
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5" id="products-grid">
             <!-- Les cartes sont injectées ici -->
           </div>
@@ -75,8 +78,46 @@ export class DashboardView {
       cartSlot.appendChild(this.cart.render());
     }
 
+    this.renderAddonWidgets(container);
     this.renderProductsGrid(container);
     return container;
+  }
+
+  private renderAddonWidgets(parent: HTMLElement): void {
+    const widgetsContainer = parent.querySelector('#addon-widgets-container') as HTMLElement | null;
+    if (!widgetsContainer) return;
+
+    const widgets = addonManager.getRegisteredWidgets();
+    widgetsContainer.innerHTML = '';
+
+    if (widgets.length === 0) {
+      widgetsContainer.classList.add('hidden');
+      return;
+    }
+
+    widgetsContainer.classList.remove('hidden');
+    for (const widget of widgets) {
+      const card = document.createElement('div');
+      card.className = 'rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/70 p-3.5 flex flex-col gap-2';
+      card.setAttribute('data-widget-id', widget.id);
+
+      const header = document.createElement('div');
+      header.className = 'text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400';
+      header.innerHTML = escapeHtml(widget.title);
+
+      const body = document.createElement('div');
+      body.className = 'min-w-0';
+
+      card.appendChild(header);
+      card.appendChild(body);
+      widgetsContainer.appendChild(card);
+
+      try {
+        widget.render(body);
+      } catch (err) {
+        console.error(`Erreur rendu widget [${widget.id}] :`, err);
+      }
+    }
   }
 
   private renderProductsGrid(parent: HTMLElement): void {

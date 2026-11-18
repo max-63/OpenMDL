@@ -3,6 +3,7 @@ import { AddonPackage } from '../types/addon';
 import { Icons } from '../components/Icons';
 import { createNewAddonTemplate, ADDON_GUIDE_MARKDOWN } from '../services/addonTemplates';
 import { packAddonBinary, unpackAddonBinary, triggerFileDownload } from '../services/binaryCodec';
+import { escapeHtml } from '../utils/security';
 
 export class AddonsView {
   private container: HTMLElement | null = null;
@@ -123,20 +124,28 @@ export class AddonsView {
   private renderAddonCard(pkg: AddonPackage): string {
     const m = pkg.manifest;
     const isEnabled = m.enabled;
+    const safeId = escapeHtml(m.id);
+    const safeName = escapeHtml(m.name);
+    const safeDesc = escapeHtml(m.description || 'Aucune description fournie.');
+    const safeAuthor = escapeHtml(m.author || 'Anonyme');
+    const safeVersion = escapeHtml(m.version || '1.0.0');
+    const safeCategory = escapeHtml(m.category || 'Module');
+    const iconFn = (Icons as Record<string, ((cls?: string) => string) | undefined>)[m.icon];
+    const iconSvg = typeof iconFn === 'function' ? iconFn('w-5 h-5') : Icons.puzzle('w-5 h-5');
 
     return `
-      <div class="rounded-3xl bg-white dark:bg-slate-900 border ${isEnabled ? 'border-orange-500/30 shadow-sm' : 'border-slate-200 dark:border-slate-800 opacity-80'} p-5 flex flex-col justify-between gap-4 transition-all hover:border-orange-500/50" data-addon-id="${m.id}">
+      <div class="rounded-3xl bg-white dark:bg-slate-900 border ${isEnabled ? 'border-orange-500/30 shadow-sm' : 'border-slate-200 dark:border-slate-800 opacity-80'} p-5 flex flex-col justify-between gap-4 transition-all hover:border-orange-500/50" data-addon-id="${safeId}">
         
         <!-- Haut de carte : Icône + Nom + Interrupteur -->
         <div class="space-y-3">
           <div class="flex items-start justify-between gap-3">
             <div class="flex items-center gap-3">
               <div class="w-10 h-10 rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400 flex items-center justify-center font-bold">
-                ${Icons.puzzle('w-5 h-5')}
+                ${iconSvg}
               </div>
               <div>
                 <span class="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  ${m.category || 'Module'}
+                  ${safeCategory}
                 </span>
               </div>
             </div>
@@ -146,7 +155,7 @@ export class AddonsView {
               <span class="text-[11px] font-bold ${isEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}">
                 ${isEnabled ? 'Actif' : 'Inactif'}
               </span>
-              <div class="w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors btn-toggle-switch ${isEnabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}" data-id="${m.id}" title="${isEnabled ? 'Désactiver' : 'Activer'}">
+              <div class="w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors btn-toggle-switch ${isEnabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}" data-id="${safeId}" title="${isEnabled ? 'Désactiver' : 'Activer'}">
                 <span class="inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out my-0.5 ml-0.5 ${isEnabled ? 'translate-x-4' : 'translate-x-0'}"></span>
               </div>
             </div>
@@ -154,16 +163,16 @@ export class AddonsView {
 
           <!-- Titre & Description -->
           <div>
-            <h3 class="text-sm font-black text-slate-900 dark:text-white tracking-tight">${m.name}</h3>
+            <h3 class="text-sm font-black text-slate-900 dark:text-white tracking-tight">${safeName}</h3>
             <p class="text-xs text-slate-500 dark:text-slate-400 font-medium pt-1 line-clamp-2 leading-relaxed">
-              ${m.description || 'Aucune description fournie.'}
+              ${safeDesc}
             </p>
           </div>
         </div>
 
         <!-- Bouton Principal d'Édition : Ouvrir dans VS Code -->
         <div class="pt-2">
-          <button class="w-full py-2.5 px-3 rounded-2xl bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 dark:hover:bg-sky-900/50 border border-sky-200 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 font-extrabold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer btn-open-vscode" data-id="${m.id}">
+          <button class="w-full py-2.5 px-3 rounded-2xl bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 dark:hover:bg-sky-900/50 border border-sky-200 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 font-extrabold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer btn-open-vscode" data-id="${safeId}">
             ${Icons.code('w-4 h-4 text-sky-500')}
             <span>Ouvrir dans VS Code / Mon Éditeur</span>
           </button>
@@ -172,22 +181,22 @@ export class AddonsView {
         <!-- Bas de carte : Auteur + Actions secondaires -->
         <div class="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
           <div class="text-[11px] text-slate-400 font-medium truncate">
-            Par <span class="font-bold text-slate-600 dark:text-slate-300">${m.author}</span> (v${m.version})
+            Par <span class="font-bold text-slate-600 dark:text-slate-300">${safeAuthor}</span> (v${safeVersion})
           </div>
 
           <div class="flex items-center gap-1.5 flex-shrink-0">
             <!-- Synchroniser depuis le disque -->
-            <button class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors btn-sync-disk cursor-pointer" data-id="${m.id}" title="Recharger les fichiers modifiés dans votre éditeur">
+            <button class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors btn-sync-disk cursor-pointer" data-id="${safeId}" title="Recharger les fichiers modifiés dans votre éditeur">
               ${Icons.refresh('w-3.5 h-3.5')}
             </button>
 
             <!-- Exporter -->
-            <button class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors btn-export-addon cursor-pointer" data-id="${m.id}" title="Exporter le fichier addon JSON pour GitHub">
+            <button class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors btn-export-addon cursor-pointer" data-id="${safeId}" title="Exporter le fichier addon JSON pour GitHub">
               ${Icons.download('w-3.5 h-3.5')}
             </button>
 
             <!-- Supprimer -->
-            <button class="p-2 rounded-xl bg-slate-100 hover:bg-rose-500/10 text-slate-400 hover:text-rose-500 dark:bg-slate-800 dark:hover:bg-rose-500/20 transition-colors btn-delete-addon cursor-pointer" data-id="${m.id}" title="Supprimer cet addon">
+            <button class="p-2 rounded-xl bg-slate-100 hover:bg-rose-500/10 text-slate-400 hover:text-rose-500 dark:bg-slate-800 dark:hover:bg-rose-500/20 transition-colors btn-delete-addon cursor-pointer" data-id="${safeId}" title="Supprimer cet addon">
               ${Icons.trash('w-3.5 h-3.5')}
             </button>
           </div>

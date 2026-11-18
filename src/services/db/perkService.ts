@@ -7,12 +7,11 @@ import type {
   Volunteer
 } from '../../types';
 import { STORAGE_KEYS } from './constants.ts';
+import { storageService } from './storageService.ts';
 
 export class PerkService {
   public saveVolunteerPerks(volunteerPerks: VolunteerPerk[]): void {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.PERKS, JSON.stringify(volunteerPerks));
-    }
+    storageService.safeSetItem(STORAGE_KEYS.PERKS, JSON.stringify(volunteerPerks));
   }
 
   public getSessionSalesCount(sales: Sale[], targetSessionId?: string): number {

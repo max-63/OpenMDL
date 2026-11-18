@@ -7,14 +7,12 @@
 interface Product {
   id: string;
   name: string;
-  category: 'boissons' | 'snacks' | 'fournitures' | 'goodies' | 'evenements' | string;
+  category: 'boissons' | 'snacks' | 'bonbons' | 'chaud' | 'autre';
   price: number;
   costPrice: number;
   stock: number;
   minStockAlert: number;
-  imageUrl?: string;
-  color?: string;
-  barcode?: string;
+  imageUrl: string;
   isActive: boolean;
   isFavorite?: boolean;
 }
@@ -22,50 +20,52 @@ interface Product {
 interface SaleItem {
   productId: string;
   productName: string;
-  quantity: number;
   unitPrice: number;
+  quantity: number;
   totalPrice: number;
-  costPrice?: number;
 }
 
 interface Sale {
   id: string;
-  sessionId: string;
-  volunteerId: string;
-  volunteerName: string;
+  timestamp: string;
   items: SaleItem[];
   totalAmount: number;
-  paymentMethod: 'especes' | 'tpe' | 'cash' | 'card';
+  paymentMethod: 'especes' | 'tpe';
   cashReceived?: number;
   cashReturned?: number;
-  timestamp: string;
-  cancelled?: boolean;
-  cancelReason?: string;
+  volunteerId: string;
+  volunteerName: string;
+  sessionId: string;
+  isCancelled?: boolean;
+  cancelledAt?: string;
 }
 
 interface Session {
   id: string;
+  startTime: string;
+  endTime?: string;
   volunteerId: string;
   volunteerName: string;
-  openedAt: string;
-  closedAt?: string;
-  initialCash?: number;
-  expectedCash?: number;
-  actualCash?: number;
-  cashDifference?: number;
-  totalCard?: number;
-  totalSales?: number;
-  commentary?: string;
-  volunteerPerkClaimed?: boolean;
-  perkProductId?: string;
+  totalSales: number;
+  totalCash: number;
+  totalTpe: number;
+  salesCount: number;
+  incidentNotes?: string;
+  draftNotes?: string;
+  draftPerkProductId?: string;
+  status: 'active' | 'closed';
 }
 
 interface Volunteer {
   id: string;
   username: string;
   name: string;
-  role?: string;
-  isAdmin?: boolean;
+  role: string;
+  avatarColor: string;
+  avatarUrl?: string;
+  isAdmin: boolean;
+  isSuspended?: boolean;
+  createdAt?: string;
 }
 
 interface CartItem {
@@ -75,8 +75,9 @@ interface CartItem {
 
 interface PerkSettings {
   enabled: boolean;
-  maxPerksPerSession: number;
-  eligibleCategories: string[];
+  rule: 'always' | 'sales_count' | 'items_sold';
+  threshold: number;
+  allowMultiplePerDay: boolean;
 }
 
 interface RegisteredTab {
@@ -94,21 +95,26 @@ interface RegisteredWidget {
   render: (container: HTMLElement) => void;
 }
 
-type OpenMdlEventType =
-  | 'sale:completed'
-  | 'sale:cancelled'
-  | 'session:opened'
-  | 'session:closed'
-  | 'cart:updated'
-  | 'product:updated'
-  | 'product:deleted'
-  | 'stock:updated'
-  | 'theme:changed'
-  | 'volunteer:login'
-  | 'volunteer:logout'
-  | 'perk:claimed';
+interface OpenMdlEventMap {
+  'sale:completed': Sale;
+  'sale:cancelled': { saleId: string; restoredStock: boolean };
+  'session:opened': Session;
+  'session:closed': Session;
+  'cart:updated': CartItem[];
+  'product:updated': Product;
+  'product:deleted': { id: string };
+  'stock:updated': { id: string; quantityAdded?: number; newStock?: number; reason?: string };
+  'theme:changed': 'dark' | 'light';
+  'volunteer:login': Volunteer;
+  'volunteer:logout': Volunteer | null;
+  'perk:claimed': { volunteerId: string; productId: string };
+}
 
-type OpenMdlEventListener = (payload: any) => void;
+type OpenMdlEventType = keyof OpenMdlEventMap;
+
+type OpenMdlEventListener<K extends OpenMdlEventType = OpenMdlEventType> = (
+  payload: OpenMdlEventMap[K]
+) => void;
 
 interface IOpenMdlApi {
   readonly version: string;
@@ -333,13 +339,13 @@ interface IOpenMdlApi {
    */
   readonly events: {
     /** Écoute un événement système */
-    on: (event: OpenMdlEventType, listener: OpenMdlEventListener) => () => void;
+    on: <K extends OpenMdlEventType>(event: K, listener: OpenMdlEventListener<K>) => () => void;
     /** Écoute un événement une seule fois */
-    once: (event: OpenMdlEventType, listener: OpenMdlEventListener) => () => void;
+    once: <K extends OpenMdlEventType>(event: K, listener: OpenMdlEventListener<K>) => () => void;
     /** Retire un écouteur d'événement */
-    off: (event: OpenMdlEventType, listener: OpenMdlEventListener) => void;
+    off: <K extends OpenMdlEventType>(event: K, listener: OpenMdlEventListener<K>) => void;
     /** Émet un événement personnalisé */
-    emit: (event: OpenMdlEventType, payload?: any) => void;
+    emit: <K extends OpenMdlEventType>(event: K, payload?: OpenMdlEventMap[K]) => void;
   };
 
   /**
@@ -392,6 +398,7 @@ interface IOpenMdlApi {
       title: string;
       content: HTMLElement | string;
       onClose?: () => void;
+      size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
     }) => void;
     /** Ferme la boîte modale active */
     closeModal: () => void;

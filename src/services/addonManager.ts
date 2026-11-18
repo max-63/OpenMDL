@@ -1,5 +1,14 @@
-import { AddonPackage, IOpenMdlApi, RegisteredTab, RegisteredWidget, OpenMdlEventType, OpenMdlEventListener } from '../types/addon';
-import { Product, Sale } from '../types';
+import {
+  AddonPackage,
+  IOpenMdlApi,
+  RegisteredTab,
+  RegisteredWidget,
+  OpenMdlEventType,
+  OpenMdlEventMap,
+  OpenMdlEventListener,
+  PublicVolunteer
+} from '../types/addon';
+import { Product, Volunteer } from '../types';
 import { db } from './db';
 import { Marked } from 'marked';
 import { transform } from 'sucrase';
@@ -134,7 +143,7 @@ export class AddonManager {
   private packages: AddonPackage[] = [];
   private registeredTabs: Map<string, RegisteredTab> = new Map();
   private registeredWidgets: Map<string, RegisteredWidget> = new Map();
-  private eventListeners: Map<OpenMdlEventType, Set<OpenMdlEventListener>> = new Map();
+  private eventListeners: Map<OpenMdlEventType, Set<OpenMdlEventListener<any>>> = new Map();
   private activeAddonCleanups: Map<string, Array<() => void>> = new Map();
   private listeners: Set<() => void> = new Set();
   private currentExecutingAddonId: string | null = null;
@@ -324,17 +333,22 @@ export class AddonManager {
       document.head.appendChild(styleEl);
     }
 
-    // 2. Trouver le fichier d'entrée (soit index.ts, /src/index.ts, index.js, etc.)
-    const scriptFile = pkg.files.find(f => 
-      f.name === 'index.ts' || 
-      f.path === '/src/index.ts' || 
-      f.path === '/index.ts' || 
-      f.name === 'index.js' || 
-      f.path === '/src/index.js' || 
-      f.path === '/index.js' ||
-      f.name.endsWith('.ts') ||
-      f.name.endsWith('.js')
-    );
+    // 2. Trouver le fichier d'entrée (entryPoint du manifeste, puis index.ts, /src/index.ts, index.js, etc.)
+    const entryPoint = pkg.manifest.entryPoint?.trim();
+    const scriptFile =
+      (entryPoint
+        ? pkg.files.find(f => f.path === entryPoint || f.name === entryPoint || f.path === `/${entryPoint.replace(/^\/+/, '')}`)
+        : undefined) ||
+      pkg.files.find(f =>
+        f.name === 'index.ts' ||
+        f.path === '/src/index.ts' ||
+        f.path === '/index.ts' ||
+        f.name === 'index.js' ||
+        f.path === '/src/index.js' ||
+        f.path === '/index.js' ||
+        f.name.endsWith('.ts') ||
+        f.name.endsWith('.js')
+      );
     if (!scriptFile || !scriptFile.content.trim()) return;
 
     this.currentExecutingAddonId = pkg.manifest.id;
@@ -351,8 +365,9 @@ export class AddonManager {
         console.warn('Erreur lors de la transpilation TS de l\'addon, exécution directe :', transpileErr);
       }
 
-      const runnable = new Function('OpenMDL', runnableJs);
-      runnable((window as any).OpenMDL);
+      const scopedApi = this.createApi(pkg.manifest.id);
+      const runnable = new Function('OpenMDL', 'api', runnableJs);
+      runnable(scopedApi, scopedApi);
     } catch (err) {
       console.error(`Erreur d'exécution de l'addon [${pkg.manifest.name}] :`, err);
       this.api.ui.notify(`Erreur addon ${pkg.manifest.name} : ${err instanceof Error ? err.message : String(err)}`, 'error');
@@ -362,12 +377,12 @@ export class AddonManager {
     }
   }
 
-  public emit(event: OpenMdlEventType, payload?: any): void {
+  public emit<K extends OpenMdlEventType>(event: K, payload?: OpenMdlEventMap[K]): void {
     const listeners = this.eventListeners.get(event);
     if (listeners) {
       listeners.forEach(fn => {
         try {
-          fn(payload);
+          fn(payload as OpenMdlEventMap[K]);
         } catch (e) {
           console.error(`Erreur listener pour ${event} :`, e);
         }
@@ -378,14 +393,22 @@ export class AddonManager {
   private setupGlobalApi(): void {
     const api = this.createApi();
     (window as any).OpenMDL = api;
+    (window as any).api = api;
+  }
+
+  private sanitizeVolunteer(vol: Volunteer): PublicVolunteer {
+    const { password: _pw, pinCode: _pin, ...publicVol } = vol;
+    return publicVol;
   }
 
   public get api(): IOpenMdlApi {
     return this.createApi();
   }
 
-  private createApi(): IOpenMdlApi {
+  private createApi(scopedAddonId?: string): IOpenMdlApi {
     const self = this;
+    const getAddonId = () => scopedAddonId || self.currentExecutingAddonId || 'system';
+    const getStorageAddonId = () => scopedAddonId || self.currentExecutingAddonId || 'global_api';
 
     return {
       version: '1.0.5',
@@ -396,7 +419,7 @@ export class AddonManager {
       // 1. Navigation & Onglets
       navigation: {
         registerTab(tab) {
-          const addonId = self.currentExecutingAddonId || 'system';
+          const addonId = getAddonId();
           const protectedIds = ['dashboard', 'catalog', 'restock', 'stats', 'agenda', 'tpe', 'settings', 'credits', 'addons'];
           if (protectedIds.includes(tab.id.toLowerCase())) {
             console.warn(`Tentative de surcharge de l'onglet protégé : ${tab.id}. Opération ignorée.`);
@@ -447,7 +470,7 @@ export class AddonManager {
       // 2. Dashboard & Widgets
       dashboard: {
         registerWidget(widget) {
-          const addonId = self.currentExecutingAddonId || 'system';
+          const addonId = getAddonId();
           self.registeredWidgets.set(widget.id, {
             id: widget.id,
             title: widget.title,
@@ -485,11 +508,19 @@ export class AddonManager {
           return db.getProducts().filter(p => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
         },
         create: (p) => {
+          const currentVol = db.getCurrentVolunteer();
+          if (currentVol && !currentVol.isAdmin) {
+            return { success: false, message: 'Action réservée aux administrateurs' };
+          }
           const prod = db.addProduct(p);
           self.emit('product:updated', prod);
           return { success: true, message: 'Produit créé', product: prod };
         },
         update: (id, updates) => {
+          const currentVol = db.getCurrentVolunteer();
+          if (currentVol && !currentVol.isAdmin) {
+            return { success: false, message: 'Action réservée aux administrateurs' };
+          }
           const prod = db.getProductById(id);
           if (!prod) return { success: false, message: 'Produit introuvable' };
           const updated = { ...prod, ...updates };
@@ -498,16 +529,32 @@ export class AddonManager {
           return { success: true, message: 'Produit mis à jour' };
         },
         delete: (id) => {
+          const currentVol = db.getCurrentVolunteer();
+          if (currentVol && !currentVol.isAdmin) {
+            return { success: false, message: 'Action réservée aux administrateurs' };
+          }
+          const prod = db.getProductById(id);
+          if (!prod) return { success: false, message: 'Produit introuvable' };
           db.deleteProduct(id);
           self.emit('product:deleted', { id });
           return { success: true, message: 'Produit supprimé' };
         },
         restock: (id, qty, reason) => {
+          const currentVol = db.getCurrentVolunteer();
+          if (currentVol && !currentVol.isAdmin) {
+            return { success: false, message: 'Action réservée aux administrateurs' };
+          }
+          const prod = db.getProductById(id);
+          if (!prod) return { success: false, message: 'Produit introuvable' };
           db.applyRestock(id, qty);
           self.emit('stock:updated', { id, quantityAdded: qty, reason });
           return { success: true, message: 'Stock réapprovisionné' };
         },
         setStock: (id, newStock) => {
+          const currentVol = db.getCurrentVolunteer();
+          if (currentVol && !currentVol.isAdmin) {
+            return { success: false, message: 'Action réservée aux administrateurs' };
+          }
           const prod = db.getProductById(id);
           if (!prod) return { success: false, message: 'Produit introuvable' };
           const updated = { ...prod, stock: Math.max(0, newStock) };
@@ -519,15 +566,16 @@ export class AddonManager {
           return Array.from(new Set(db.getProducts().map(p => p.category)));
         },
         getFavorites: () => {
-          return db.getProducts().filter(p => (p as any).isFavorite);
+          return db.getProducts().filter(p => Boolean(p.isFavorite));
         },
         toggleFavorite: (id: string) => {
           const prod = db.getProductById(id);
           if (!prod) return false;
-          (prod as any).isFavorite = !(prod as any).isFavorite;
-          db.updateProduct(prod);
-          self.emit('product:updated', prod);
-          return (prod as any).isFavorite;
+          const nextFav = !Boolean(prod.isFavorite);
+          const updated: Product = { ...prod, isFavorite: nextFav };
+          db.updateProduct(updated);
+          self.emit('product:updated', updated);
+          return nextFav;
         },
         export: () => {
           return JSON.parse(JSON.stringify(db.getProducts()));
@@ -609,15 +657,15 @@ export class AddonManager {
             });
           }
 
-          (sale as any).isCancelled = true;
-          (sale as any).cancelledAt = new Date().toISOString();
+          sale.isCancelled = true;
+          sale.cancelledAt = new Date().toISOString();
           db.saveSales();
 
           self.emit('sale:cancelled', { saleId, restoredStock: restoreStock });
           return { success: true, message: 'Vente annulée avec succès' };
         },
         getStats: (timeframe = 'day') => {
-          const allSales = db.getSales().filter(s => !(s as any).isCancelled);
+          const allSales = db.getSales().filter(s => !s.isCancelled);
           let filteredSales = allSales;
           const now = new Date();
 
@@ -802,9 +850,15 @@ export class AddonManager {
 
       // 7. Bénévoles & Utilisateurs
       volunteers: {
-        getCurrent: () => db.getCurrentVolunteer(),
-        list: () => db.getVolunteers(),
-        get: (id: string) => db.getVolunteers().find(v => v.id === id),
+        getCurrent: () => {
+          const vol = db.getCurrentVolunteer();
+          return vol ? self.sanitizeVolunteer(vol) : null;
+        },
+        list: () => db.getVolunteers().map(v => self.sanitizeVolunteer(v)),
+        get: (id: string) => {
+          const vol = db.getVolunteers().find(v => v.id === id);
+          return vol ? self.sanitizeVolunteer(vol) : undefined;
+        },
         create: (v) => {
           const res = db.createUser({
             username: v.username,
@@ -813,7 +867,11 @@ export class AddonManager {
             role: v.role || 'Bénévole',
             isAdmin: v.isAdmin || false
           });
-          return { success: res.success, volunteer: res.volunteer, message: res.message };
+          return {
+            success: res.success,
+            volunteer: res.volunteer ? self.sanitizeVolunteer(res.volunteer) : undefined,
+            message: res.message
+          };
         },
         update: (id, updates) => {
           if (updates.name) {
@@ -828,15 +886,16 @@ export class AddonManager {
           if (!vol) return { success: false, message: 'Identifiant ou code PIN incorrect' };
           const ok = db.login(vol.id);
           if (ok) {
-            self.emit('volunteer:login', vol);
-            return { success: true, volunteer: vol, message: 'Connecté' };
+            const safeVol = self.sanitizeVolunteer(vol);
+            self.emit('volunteer:login', safeVol);
+            return { success: true, volunteer: safeVol, message: 'Connecté' };
           }
           return { success: false, message: 'Compte suspendu ou inaccessible' };
         },
         logout: () => {
           const vol = db.getCurrentVolunteer();
           db.logout();
-          self.emit('volunteer:logout', vol);
+          self.emit('volunteer:logout', vol ? self.sanitizeVolunteer(vol) : null);
         },
         isAdmin: () => db.getCurrentVolunteer()?.isAdmin ?? false
       },
@@ -889,8 +948,8 @@ export class AddonManager {
           }
           self.eventListeners.get(event)!.add(listener);
 
-          const addonId = self.currentExecutingAddonId;
-          if (addonId) {
+          const addonId = getAddonId();
+          if (addonId !== 'system') {
             const cleanups = self.activeAddonCleanups.get(addonId);
             if (cleanups) {
               cleanups.push(() => self.eventListeners.get(event)?.delete(listener));
@@ -903,7 +962,7 @@ export class AddonManager {
         },
 
         once(event, listener) {
-          const wrapper: OpenMdlEventListener = (payload) => {
+          const wrapper: OpenMdlEventListener<typeof event> = (payload) => {
             self.eventListeners.get(event)?.delete(wrapper);
             listener(payload);
           };
@@ -921,8 +980,8 @@ export class AddonManager {
 
       // 11. Stockage persistant isolé
       storage: {
-        get<T = any>(key: string, defaultValue?: T): T {
-          const addonId = self.currentExecutingAddonId || 'global_api';
+        get<T = unknown>(key: string, defaultValue?: T): T {
+          const addonId = getStorageAddonId();
           const fullKey = `addon_storage_${addonId}_${key}`;
           const val = localStorage.getItem(fullKey);
           if (val === null) return defaultValue as T;
@@ -933,19 +992,19 @@ export class AddonManager {
           }
         },
 
-        set<T = any>(key: string, value: T): void {
-          const addonId = self.currentExecutingAddonId || 'global_api';
+        set<T = unknown>(key: string, value: T): void {
+          const addonId = getStorageAddonId();
           const fullKey = `addon_storage_${addonId}_${key}`;
           localStorage.setItem(fullKey, JSON.stringify(value));
         },
 
         remove(key: string): void {
-          const addonId = self.currentExecutingAddonId || 'global_api';
+          const addonId = getStorageAddonId();
           localStorage.removeItem(`addon_storage_${addonId}_${key}`);
         },
 
         clear(): void {
-          const addonId = self.currentExecutingAddonId || 'global_api';
+          const addonId = getStorageAddonId();
           const prefix = `addon_storage_${addonId}_`;
           Object.keys(localStorage).forEach(k => {
             if (k.startsWith(prefix)) {
@@ -955,17 +1014,17 @@ export class AddonManager {
         },
 
         keys(): string[] {
-          const addonId = self.currentExecutingAddonId || 'global_api';
+          const addonId = getStorageAddonId();
           const prefix = `addon_storage_${addonId}_`;
           return Object.keys(localStorage)
             .filter(k => k.startsWith(prefix))
             .map(k => k.slice(prefix.length));
         },
 
-        getAll(): Record<string, any> {
-          const addonId = self.currentExecutingAddonId || 'global_api';
+        getAll(): Record<string, unknown> {
+          const addonId = getStorageAddonId();
           const prefix = `addon_storage_${addonId}_`;
-          const result: Record<string, any> = {};
+          const result: Record<string, unknown> = {};
           Object.keys(localStorage).forEach(k => {
             if (k.startsWith(prefix)) {
               const subKey = k.slice(prefix.length);
@@ -1200,12 +1259,22 @@ export class AddonManager {
           return next;
         },
         injectCss(css: string, id?: string) {
-          const targetId = id ? `custom-css-${id}` : `custom-css-anon-${Date.now()}`;
+          const addonId = getAddonId();
+          const targetId = id ? `custom-css-${id}` : `custom-css-anon-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
           let el = document.getElementById(targetId) as HTMLStyleElement;
           if (!el) {
             el = document.createElement('style');
             el.id = targetId;
             document.head.appendChild(el);
+            if (addonId !== 'system') {
+              const cleanups = self.activeAddonCleanups.get(addonId);
+              if (cleanups) {
+                cleanups.push(() => {
+                  const styleNode = document.getElementById(targetId);
+                  if (styleNode) styleNode.remove();
+                });
+              }
+            }
           }
           el.textContent = css;
         },

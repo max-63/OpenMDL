@@ -112,47 +112,86 @@ export class DatabaseService {
         let changed = false;
         for (const [k, v] of allEntries) {
           try {
-            if (k === STORAGE_KEYS.PRODUCTS && v) {
+            if (!v) continue;
+            if (k === STORAGE_KEYS.PRODUCTS) {
               this.products = JSON.parse(v);
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.SALES && v) {
+            } else if (k === STORAGE_KEYS.SALES) {
               this.sales = JSON.parse(v);
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.SESSIONS && v) {
+            } else if (k === STORAGE_KEYS.SESSIONS) {
               this.sessions = JSON.parse(v);
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.VOLUNTEERS && v) {
+            } else if (k === STORAGE_KEYS.VOLUNTEERS) {
               this.volunteers = JSON.parse(v);
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.RESTOCKS && v) {
+            } else if (k === STORAGE_KEYS.RESTOCKS) {
               this.restocks = JSON.parse(v);
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.CASH_FLOAT_SETTINGS && v) {
-              this.cashFloatSettings = JSON.parse(v);
+            } else if (k === STORAGE_KEYS.LOGS) {
+              this.logs = JSON.parse(v);
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.PERK_SETTINGS && v) {
-              this.perkSettings = JSON.parse(v);
+            } else if (k === STORAGE_KEYS.PERKS) {
+              this.volunteerPerks = JSON.parse(v);
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.TPE_SETTINGS && v) {
-              this.tpeSettings = JSON.parse(v);
+            } else if (k === STORAGE_KEYS.CASH_FLOAT_SETTINGS) {
+              this.cashFloatSettings = { ...DEFAULT_CASH_FLOAT_SETTINGS, ...JSON.parse(v) };
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.ACTIVE_SESSION && v) {
+            } else if (k === STORAGE_KEYS.PERK_SETTINGS) {
+              this.perkSettings = { ...DEFAULT_PERK_SETTINGS, ...JSON.parse(v) };
+              storageService.setLocalCacheOnly(k, v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.TPE_SETTINGS) {
+              this.tpeSettings = { ...DEFAULT_TPE_SETTINGS, ...JSON.parse(v) };
+              storageService.setLocalCacheOnly(k, v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.TPE_LOGS) {
+              this.tpeLogs = JSON.parse(v);
+              storageService.setLocalCacheOnly(k, v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.PACMAN_SCORES) {
+              const parsed = JSON.parse(v);
+              if (Array.isArray(parsed)) {
+                this.snakeScores = parsed;
+                storageService.setLocalCacheOnly(k, v);
+                changed = true;
+              }
+            } else if (k === STORAGE_KEYS.ACTIVE_SESSION) {
               this.activeSession = JSON.parse(v);
+              if (this.activeSession) {
+                this.currentVolunteer = this.volunteers.find(vol => vol.id === this.activeSession?.volunteerId) || this.currentVolunteer;
+              }
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.CHAT_SETTINGS && v) {
+            } else if (k === STORAGE_KEYS.DATABASE_CONFIG) {
+              this.databaseConfig = { ...DEFAULT_DATABASE_CONFIG, ...JSON.parse(v) };
+              storageService.setLocalCacheOnly(k, v);
+              changed = true;
+            } else if (k === STORAGE_KEYS.CHAT_SETTINGS) {
               this.chatSettings = { ...DEFAULT_CHAT_SETTINGS, ...JSON.parse(v) };
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.CHAT_CHANNELS && v) {
+            } else if (k === STORAGE_KEYS.CHAT_CHANNELS) {
               this.chatChannels = JSON.parse(v);
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
-            } else if (k === STORAGE_KEYS.CHAT_MESSAGES && v) {
+            } else if (k === STORAGE_KEYS.CHAT_MESSAGES) {
               const msgs = JSON.parse(v);
               if (Array.isArray(msgs) && msgs.length > 0) {
                 this.chatMessages = msgs;
+                storageService.setLocalCacheOnly(k, v);
                 changed = true;
               }
-            } else if (k === STORAGE_KEYS.APP_PROFILE && v) {
-              localStorage.setItem(STORAGE_KEYS.APP_PROFILE, v);
+            } else if (k === STORAGE_KEYS.APP_PROFILE) {
+              storageService.setLocalCacheOnly(k, v);
               changed = true;
             }
           } catch {}
@@ -162,6 +201,7 @@ export class DatabaseService {
           const sqliteChatMsgs = await invoke<ChatMessage[]>('sqlite_get_chat_messages', { channelId: null });
           if (sqliteChatMsgs && sqliteChatMsgs.length > 0) {
             this.chatMessages = sqliteChatMsgs;
+            storageService.setLocalCacheOnly(STORAGE_KEYS.CHAT_MESSAGES, JSON.stringify(sqliteChatMsgs));
             changed = true;
           } else if (this.chatMessages.length > 0) {
             for (const msg of this.chatMessages) {
@@ -190,9 +230,17 @@ export class DatabaseService {
         this.saveSessions();
         this.saveVolunteers();
         this.saveRestocks();
+        this.saveLogs();
+        this.saveVolunteerPerks();
         this.saveCashFloatSettings();
         this.savePerkSettings();
         this.saveTpeSettings();
+        this.saveTpeLogs();
+        this.saveSnakeScores();
+        this.saveChatChannels();
+        storageService.safeSetItem(STORAGE_KEYS.CHAT_SETTINGS, JSON.stringify(this.chatSettings));
+        storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
+        storageService.safeSetItem(STORAGE_KEYS.APP_PROFILE, this.getAppProfile());
         this.saveChatMessages();
       }
     } catch {}
@@ -462,8 +510,11 @@ export class DatabaseService {
   }
 
   private saveSnakeScores(): void {
-    localStorage.setItem(STORAGE_KEYS.SNAKE_SCORES, JSON.stringify(this.snakeScores));
-    localStorage.setItem(STORAGE_KEYS.PACMAN_SCORES, JSON.stringify(this.snakeScores));
+    const serialized = JSON.stringify(this.snakeScores);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEYS.SNAKE_SCORES);
+    }
+    storageService.safeSetItem(STORAGE_KEYS.PACMAN_SCORES, serialized);
   }
 
   public logActivity(type: ActivityLog['type'], message: string): void {
@@ -928,7 +979,7 @@ export class DatabaseService {
 
   public updatePerkSettings(updates: Partial<PerkSettings>): void {
     this.perkSettings = { ...this.perkSettings, ...updates };
-    localStorage.setItem(STORAGE_KEYS.PERK_SETTINGS, JSON.stringify(this.perkSettings));
+    this.savePerkSettings();
     const statusTxt = this.perkSettings.enabled ? 'Activée' : 'Désactivée';
     const ruleTxt = this.perkSettings.rule === 'items_sold'
       ? `${this.perkSettings.threshold} articles vendus`
@@ -996,7 +1047,12 @@ export class DatabaseService {
     );
     if (res.success && res.perk) {
       this.saveProducts();
+      this.saveVolunteerPerks();
       this.logActivity('INFO', `Conso offerte bénévole : "${res.perk.productName}" attribuée à ${res.perk.volunteerName} (Coût foyer : ${res.perk.costPrice.toFixed(2)}€)`);
+      (window as any).OpenMDL?.events.emit('perk:claimed', {
+        volunteerId: res.perk.volunteerId,
+        productId: res.perk.productId
+      });
       this.notify();
     }
     return res;
@@ -1044,12 +1100,30 @@ export class DatabaseService {
     const session = this.sessions.find(s => s.id === sessionId);
     if (!session || !session.cashWithdrawal) return false;
 
+    const visaDate = new Date().toISOString();
     session.cashWithdrawal.visaBy = visaBy;
-    session.cashWithdrawal.visaDate = new Date().toISOString();
+    session.cashWithdrawal.visaDate = visaDate;
     session.cashWithdrawal.visaNotes = visaNotes || '';
 
     this.saveSessions();
     this.logActivity('INFO', `Visa de remise d'espèces validé par ${visaBy} pour la séance de ${session.volunteerName}`);
+    import('./syncService')
+      .then(m => m.syncService.pushSessionVisa(sessionId, visaBy, visaDate, visaNotes || ''))
+      .catch(() => {});
+    this.notify();
+    return true;
+  }
+
+  public applyRemoteSessionVisa(sessionId: string, visaBy: string, visaDate: string, visaNotes = ''): boolean {
+    const session = this.sessions.find(s => s.id === sessionId);
+    if (!session || !session.cashWithdrawal) return false;
+
+    session.cashWithdrawal.visaBy = visaBy;
+    session.cashWithdrawal.visaDate = visaDate || new Date().toISOString();
+    session.cashWithdrawal.visaNotes = visaNotes;
+
+    this.saveSessions();
+    this.logActivity('INFO', `Visa LAN reçu de ${visaBy} pour la séance de ${session.volunteerName}`);
     this.notify();
     return true;
   }
@@ -1317,7 +1391,32 @@ export class DatabaseService {
       this.saveSales();
     }
     if (Array.isArray(data.sessions)) {
-      this.sessions = data.sessions;
+      const localVisaBySessionId = new Map<string, { visaBy: string; visaDate?: string; visaNotes?: string }>();
+      for (const localSess of this.sessions) {
+        if (localSess.cashWithdrawal?.visaBy) {
+          localVisaBySessionId.set(localSess.id, {
+            visaBy: localSess.cashWithdrawal.visaBy,
+            visaDate: localSess.cashWithdrawal.visaDate,
+            visaNotes: localSess.cashWithdrawal.visaNotes
+          });
+        }
+      }
+
+      this.sessions = data.sessions.map((remoteSess: Session) => {
+        if (remoteSess?.cashWithdrawal && !remoteSess.cashWithdrawal.visaBy) {
+          const localVisa = localVisaBySessionId.get(remoteSess.id);
+          if (localVisa) {
+            return {
+              ...remoteSess,
+              cashWithdrawal: {
+                ...remoteSess.cashWithdrawal,
+                ...localVisa
+              }
+            };
+          }
+        }
+        return remoteSess;
+      });
       this.saveSessions();
     }
     if (Array.isArray(data.volunteers)) {
@@ -1341,7 +1440,7 @@ export class DatabaseService {
     }
     if (data.chatSettings) {
       this.chatSettings = { ...DEFAULT_CHAT_SETTINGS, ...data.chatSettings };
-      localStorage.setItem(STORAGE_KEYS.CHAT_SETTINGS, JSON.stringify(this.chatSettings));
+      storageService.safeSetItem(STORAGE_KEYS.CHAT_SETTINGS, JSON.stringify(this.chatSettings));
     }
     if (Array.isArray(data.logs)) {
       this.logs = data.logs;
@@ -1359,6 +1458,7 @@ export class DatabaseService {
       this.cashFloatSettings = { ...DEFAULT_CASH_FLOAT_SETTINGS, ...data.cashFloatSettings };
       this.saveCashFloatSettings();
     }
+    this.notify();
   }
 
   public getAppProfile(): AppProfile {
@@ -1489,9 +1589,7 @@ export class DatabaseService {
       status: config.status || 'connected',
       lastPing: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     };
-    try {
-      localStorage.setItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
-    } catch {}
+    storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
     this.notify();
     return { success: true, message: `Base SQLite embarquée vérifiée et synchronisée.` };
   }
@@ -1537,6 +1635,9 @@ export class DatabaseService {
     this.saveChatMessages();
     this.markChannelAsRead(channelId);
     chatService.broadcastChatUpdate();
+    import('./syncService')
+      .then(m => m.syncService.pushLocalChatMessages([newMsg]))
+      .catch(() => {});
     this.notify();
 
     return { success: true, message: 'Message envoyé', chatMessage: newMsg };
@@ -1584,13 +1685,21 @@ export class DatabaseService {
     this.sessions = [];
     this.activeSession = null;
     this.restocks = [];
+    this.volunteerPerks = [];
+    this.tpeLogs = [];
+    this.snakeScores = [];
     this.logs = [];
     this.saveProducts();
     this.saveSales();
     this.saveSessions();
     this.saveRestocks();
+    this.saveVolunteerPerks();
+    this.saveTpeLogs();
+    this.saveSnakeScores();
     this.saveLogs();
-    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    }
     this.logActivity('SECURITY', 'Réinitialisation complète des données effectuée');
     this.notify();
   }

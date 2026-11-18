@@ -1,5 +1,6 @@
 import { db } from './db';
 import { packBackupBinary, unpackBackupBinary } from './binaryCodec';
+import type { ChatMessage, Session } from '../types';
 
 export type SyncMode = 'standalone' | 'lan' | 'usb';
 export type LanRole = 'server' | 'client';
@@ -55,6 +56,7 @@ export class SyncService {
   private autoSyncTimer: any = null;
   private listeners: Set<(config: SyncConfig, status: string) => void> = new Set();
   private shutdownListeners: Set<(message: string) => void> = new Set();
+  private serverEventsAttached = false;
 
   public currentStatus: 'idle' | 'syncing' | 'success' | 'error' = 'idle';
   public lastSyncTime: string | null = null;
@@ -158,6 +160,7 @@ export class SyncService {
         pin: this.config.lan.pin.trim() ? this.config.lan.pin.trim() : null,
         dbJson
       });
+      await this.attachLanServerListeners();
       this.cachedServerStatus = status;
       this.cachedLocalIp = status.ip;
       this.currentStatus = 'success';
@@ -171,6 +174,86 @@ export class SyncService {
       this.lastSyncMessage = 'Impossible de demarrer le serveur LAN : ' + String(err);
       this.notify(this.lastSyncMessage);
       return null;
+    }
+  }
+
+  private async attachLanServerListeners(): Promise<void> {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const { listen } = await import('@tauri-apps/api/event');
+
+      if (!this.serverEventsAttached) {
+        this.serverEventsAttached = true;
+
+        await listen<ChatMessage[]>('lan-chat-messages', (event) => {
+          if (Array.isArray(event.payload) && event.payload.length > 0) {
+            db.mergeIncomingChatMessages(event.payload);
+          }
+        });
+
+        await listen<{ sessionId: string; visaBy: string; visaDate?: string; visaNotes?: string }>('lan-session-visa', (event) => {
+          const p = event.payload;
+          if (p && p.sessionId && p.visaBy) {
+            db.applyRemoteSessionVisa(p.sessionId, p.visaBy, p.visaDate || new Date().toISOString(), p.visaNotes || '');
+          }
+        });
+      }
+
+      const pendingChats = await invoke<ChatMessage[]>('take_lan_incoming_chat_messages').catch(() => []);
+      if (Array.isArray(pendingChats) && pendingChats.length > 0) {
+        db.mergeIncomingChatMessages(pendingChats);
+      }
+
+      const pendingVisas = await invoke<Array<{ sessionId: string; visaBy: string; visaDate?: string; visaNotes?: string }>>('take_lan_incoming_visas').catch(() => []);
+      if (Array.isArray(pendingVisas) && pendingVisas.length > 0) {
+        for (const v of pendingVisas) {
+          if (v && v.sessionId && v.visaBy) {
+            db.applyRemoteSessionVisa(v.sessionId, v.visaBy, v.visaDate || new Date().toISOString(), v.visaNotes || '');
+          }
+        }
+      }
+    } catch {
+      // Ignorer hors Tauri
+    }
+  }
+
+  public async pushLocalChatMessages(messages?: ChatMessage[]): Promise<void> {
+    if (this.config.mode !== 'lan' || this.config.lan.role !== 'client') return;
+    const targetUrl = this.config.lan.serverUrl.replace(/\/+$/, '');
+    const payload = messages || db.getAllChatMessages();
+    if (!Array.isArray(payload) || payload.length === 0) return;
+
+    try {
+      await fetch(`${targetUrl}/api/chat/messages`, {
+        method: 'POST',
+        headers: {
+          'X-Pin': this.config.lan.pin || '',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(4000)
+      });
+    } catch {
+      // Non bloquant : sera retenté à la prochaine synchronisation
+    }
+  }
+
+  public async pushSessionVisa(sessionId: string, visaBy: string, visaDate: string, visaNotes = ''): Promise<void> {
+    if (this.config.mode !== 'lan' || this.config.lan.role !== 'client') return;
+    const targetUrl = this.config.lan.serverUrl.replace(/\/+$/, '');
+
+    try {
+      await fetch(`${targetUrl}/api/sessions/visa`, {
+        method: 'POST',
+        headers: {
+          'X-Pin': this.config.lan.pin || '',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ sessionId, visaBy, visaDate, visaNotes }),
+        signal: AbortSignal.timeout(4000)
+      });
+    } catch {
+      // Non bloquant : le visa local reste conservé dans db.importData() et sera repoussé
     }
   }
 
@@ -391,24 +474,34 @@ export class SyncService {
         throw new Error('Donnees recues invalides ou corrompues.');
       }
 
+      // Repérer les visas saisis localement qui ne sont pas encore sur le serveur
+      const localVisasToPush: Array<{ sessionId: string; visaBy: string; visaDate: string; visaNotes: string }> = [];
+      if (Array.isArray(remoteData.sessions)) {
+        const remoteSessionById = new Map<string, Session>(
+          remoteData.sessions.map((s: Session) => [s.id, s])
+        );
+        for (const localSess of db.getSessions()) {
+          if (localSess.cashWithdrawal?.visaBy) {
+            const remoteSess = remoteSessionById.get(localSess.id);
+            if (remoteSess?.cashWithdrawal && !remoteSess.cashWithdrawal.visaBy) {
+              localVisasToPush.push({
+                sessionId: localSess.id,
+                visaBy: localSess.cashWithdrawal.visaBy,
+                visaDate: localSess.cashWithdrawal.visaDate || new Date().toISOString(),
+                visaNotes: localSess.cashWithdrawal.visaNotes || ''
+              });
+            }
+          }
+        }
+      }
+
       db.importData(remoteData);
 
-      // Réconciliation bidirectionnelle des messages de chat :
-      // Dès que le serveur est joignable, le client lui transmet ses messages locaux pour que le serveur les intègre
-      try {
-        const localMessages = db.getAllChatMessages();
-        if (localMessages.length > 0) {
-          fetch(`${targetUrl}/api/chat/messages`, {
-            method: 'POST',
-            headers: {
-              'X-Pin': this.config.lan.pin || '',
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(localMessages),
-            signal: AbortSignal.timeout(3000)
-          }).catch(() => {});
-        }
-      } catch {}
+      // Réconciliation bidirectionnelle : pousser les visas locaux et messages de chat locaux vers le serveur
+      for (const v of localVisasToPush) {
+        await this.pushSessionVisa(v.sessionId, v.visaBy, v.visaDate, v.visaNotes);
+      }
+      await this.pushLocalChatMessages();
 
       if (remoteHashHeader) {
         this.lastSyncedDbHash = remoteHashHeader;

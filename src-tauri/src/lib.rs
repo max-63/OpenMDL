@@ -391,11 +391,22 @@ fn read_dir_recursive(
 
 #[tauri::command]
 fn start_lan_server(
+    app_handle: tauri::AppHandle,
     port: u16,
     pin: Option<String>,
     db_json: String,
 ) -> Result<lan_server::LanServerInfo, String> {
-    lan_server::start_server(port, pin, db_json)
+    lan_server::start_server(app_handle, port, pin, db_json)
+}
+
+#[tauri::command]
+fn take_lan_incoming_chat_messages() -> Result<Vec<serde_json::Value>, String> {
+    Ok(lan_server::take_incoming_chat_messages())
+}
+
+#[tauri::command]
+fn take_lan_incoming_visas() -> Result<Vec<serde_json::Value>, String> {
+    Ok(lan_server::take_incoming_visas())
 }
 
 #[tauri::command]
@@ -585,6 +596,8 @@ pub fn run() {
             stop_lan_server,
             get_lan_server_info,
             update_lan_server_db,
+            take_lan_incoming_chat_messages,
+            take_lan_incoming_visas,
             get_local_ip,
             broadcast_lan_shutdown_alert,
             clear_lan_shutdown_alert,

@@ -2,12 +2,37 @@ import { STORAGE_KEYS, type ActivityLog } from './constants.ts';
 import type { ChatMessage } from '../../types';
 
 export class StorageService {
-  public async persistToSqlite(key: string, value: string): Promise<void> {
+  private pendingWrites: Set<Promise<void>> = new Set();
+
+  public persistToSqlite(key: string, value: string): Promise<void> {
+    const task = (async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('sqlite_set_key', { key, value });
+      } catch {
+        // Ignorer si Tauri non disponible (ex: environnement test ou web pur)
+      }
+    })();
+
+    this.pendingWrites.add(task);
+    task.finally(() => {
+      this.pendingWrites.delete(task);
+    });
+    return task;
+  }
+
+  public async flushPendingWrites(): Promise<void> {
+    if (this.pendingWrites.size === 0) return;
+    await Promise.allSettled(Array.from(this.pendingWrites));
+  }
+
+  public setLocalCacheOnly(key: string, value: string): void {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('sqlite_set_key', { key, value });
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, value);
+      }
     } catch {
-      // Ignorer si Tauri non disponible (ex: environnement test ou web pur)
+      // Ignorer si quota dépassé : SQLite conserve la donnée
     }
   }
 

@@ -347,3 +347,57 @@ test('Security - Neutralisation XSS (escapeHtml) et assainissement (sanitizeText
   const clean = sanitizeText(dirtyText);
   assert.equal(clean, 'Bonjour OpenMDL');
 });
+
+test('DatabaseService - Préservation des visas locaux lors de importData et purge complète via resetAll', () => {
+  const sessionWithVisa = {
+    id: 'sess-visa-preserve',
+    startTime: '2026-10-01T08:00:00.000Z',
+    endTime: '2026-10-01T10:00:00.000Z',
+    volunteerId: 'vol-admin',
+    volunteerName: 'Administrateur',
+    totalSales: 20,
+    totalCash: 20,
+    totalTpe: 0,
+    salesCount: 4,
+    status: 'closed' as const,
+    cashWithdrawal: {
+      items: [],
+      totalCounted: 70,
+      totalWithdrawn: 20,
+      totalRemainingFloat: 50,
+      expectedCashSales: 20,
+      cashDiscrepancy: 0,
+      carriedOverDeficits: {},
+      timestamp: '2026-10-01T10:00:00.000Z',
+      visaBy: 'CPE Martin',
+      visaDate: '2026-10-01T10:30:00.000Z',
+      visaNotes: 'Coffre vérifié'
+    }
+  };
+
+  db.importData({ sessions: [sessionWithVisa] });
+
+  // Import d'un snapshot distant qui ne contient pas encore le visa local
+  const remoteWithoutVisa = {
+    ...sessionWithVisa,
+    cashWithdrawal: {
+      ...sessionWithVisa.cashWithdrawal,
+      visaBy: undefined,
+      visaDate: undefined,
+      visaNotes: undefined
+    }
+  };
+  db.importData({ sessions: [remoteWithoutVisa] });
+
+  const merged = db.getSessions().find(s => s.id === 'sess-visa-preserve');
+  assert.equal(merged?.cashWithdrawal?.visaBy, 'CPE Martin');
+  assert.equal(merged?.cashWithdrawal?.visaNotes, 'Coffre vérifié');
+
+  // resetAll doit aussi vider perks, tpeLogs et scores
+  db.recordTpePayment({ amount: 5.5 });
+  db.addPacmanScore('Test', 120);
+  db.resetAll();
+  assert.equal(db.getTpeLogs().length, 0);
+  assert.equal(db.getPacmanScores().length, 0);
+  assert.equal(db.getSessions().length, 0);
+});

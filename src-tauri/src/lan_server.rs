@@ -1,8 +1,10 @@
+use std::collections::HashSet;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::Emitter;
 use tiny_http::{Header, Method, Response, Server};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -28,6 +30,8 @@ struct ServerControl {
     client_count: Arc<Mutex<u32>>,
     shutdown_alert: Arc<AtomicBool>,
     shutdown_message: Arc<Mutex<String>>,
+    pending_chat_messages: Arc<Mutex<Vec<serde_json::Value>>>,
+    pending_session_visas: Arc<Mutex<Vec<serde_json::Value>>>,
 }
 
 static SERVER_CONTROL: Mutex<Option<ServerControl>> = Mutex::new(None);
@@ -51,7 +55,12 @@ pub fn get_local_ip() -> String {
     "127.0.0.1".to_string()
 }
 
-pub fn start_server(port: u16, pin: Option<String>, initial_db: String) -> Result<LanServerInfo, String> {
+pub fn start_server(
+    app_handle: tauri::AppHandle,
+    port: u16,
+    pin: Option<String>,
+    initial_db: String,
+) -> Result<LanServerInfo, String> {
     let mut lock = SERVER_CONTROL.lock().map_err(|e| e.to_string())?;
 
     // Si déjà actif, arrêter le précédent
@@ -76,6 +85,8 @@ pub fn start_server(port: u16, pin: Option<String>, initial_db: String) -> Resul
     let client_count: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
     let shutdown_alert = Arc::new(AtomicBool::new(false));
     let shutdown_message = Arc::new(Mutex::new(String::new()));
+    let pending_chat_messages: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let pending_session_visas: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
     let ip = get_local_ip();
 
     let server_running = running.clone();
@@ -87,6 +98,9 @@ pub fn start_server(port: u16, pin: Option<String>, initial_db: String) -> Resul
     let server_client_count = client_count.clone();
     let server_shutdown_alert = shutdown_alert.clone();
     let server_shutdown_message = shutdown_message.clone();
+    let server_pending_chat = pending_chat_messages.clone();
+    let server_pending_visas = pending_session_visas.clone();
+    let server_app_handle = app_handle.clone();
 
     // Démarrage de la boucle d'écoute dans un thread d'arrière-plan
     thread::spawn(move || {
@@ -235,15 +249,167 @@ pub fn start_server(port: u16, pin: Option<String>, initial_db: String) -> Resul
                         resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
                         let _ = request.respond(resp);
                     } else if url.starts_with("/api/chat/messages") && method == Method::Post {
-                        // Réception de messages incrémentaux envoyés par un poste distant
+                        // Réception et fusion des messages incrémentaux envoyés par un poste distant
                         let mut body_buf = String::new();
                         let _ = std::io::Read::read_to_string(&mut request.as_reader(), &mut body_buf);
-                        
-                        let ok_json = r#"{"success": true, "message": "Messages recus"}"#;
-                        let mut resp = Response::from_string(ok_json);
-                        resp.add_header(cors_origin);
-                        resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
-                        let _ = request.respond(resp);
+
+                        let parsed_body = serde_json::from_str::<serde_json::Value>(&body_buf);
+                        let incoming_list: Option<Vec<serde_json::Value>> = match parsed_body {
+                            Ok(serde_json::Value::Array(arr)) => Some(arr),
+                            Ok(serde_json::Value::Object(mut obj)) => obj
+                                .remove("messages")
+                                .and_then(|v| v.as_array().cloned()),
+                            _ => None,
+                        };
+
+                        if let Some(msgs) = incoming_list {
+                            let mut added_msgs: Vec<serde_json::Value> = Vec::new();
+                            let mut updated_db_opt: Option<String> = None;
+
+                            if let Ok(mut db_guard) = server_db.lock() {
+                                if let Ok(mut db_val) = serde_json::from_str::<serde_json::Value>(&db_guard) {
+                                    if let Some(db_obj) = db_val.as_object_mut() {
+                                        let chat_arr = db_obj
+                                            .entry("chatMessages")
+                                            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+
+                                        if let Some(existing_arr) = chat_arr.as_array_mut() {
+                                            let mut seen_ids: HashSet<String> = existing_arr
+                                                .iter()
+                                                .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                                                .collect();
+
+                                            for m in msgs {
+                                                if let Some(id) = m.get("id").and_then(|v| v.as_str()) {
+                                                    if !id.is_empty() && !seen_ids.contains(id) {
+                                                        seen_ids.insert(id.to_string());
+                                                        existing_arr.push(m.clone());
+                                                        added_msgs.push(m);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if !added_msgs.is_empty() {
+                                        if let Ok(serialized) = serde_json::to_string(&db_val) {
+                                            *db_guard = serialized.clone();
+                                            updated_db_opt = Some(serialized);
+                                        }
+                                    }
+                                }
+                            }
+
+                            if let Some(updated_db) = updated_db_opt {
+                                let new_hash = compute_hash(&updated_db);
+                                if let Ok(mut guard) = server_hash.lock() {
+                                    *guard = new_hash;
+                                }
+                                if let Ok(mut guard) = server_version.lock() {
+                                    *guard += 1;
+                                }
+                                if let Ok(mut guard) = server_timestamp.lock() {
+                                    *guard = SystemTime::now()
+                                        .duration_since(UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_millis() as u64;
+                                }
+                            }
+
+                            if !added_msgs.is_empty() {
+                                if let Ok(mut pending) = server_pending_chat.lock() {
+                                    pending.extend(added_msgs.iter().cloned());
+                                }
+                                let _ = server_app_handle.emit("lan-chat-messages", &added_msgs);
+                            }
+
+                            let ok_json = format!(
+                                r#"{{"success": true, "added": {}, "message": "Messages recus"}}"#,
+                                added_msgs.len()
+                            );
+                            let mut resp = Response::from_string(ok_json);
+                            resp.add_header(cors_origin);
+                            resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                            let _ = request.respond(resp);
+                        } else {
+                            let err_json = r#"{"success": false, "error": "Payload JSON invalide"}"#;
+                            let mut resp = Response::from_string(err_json).with_status_code(400);
+                            resp.add_header(cors_origin);
+                            resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                            let _ = request.respond(resp);
+                        }
+                    } else if url.starts_with("/api/sessions/visa") && method == Method::Post {
+                        let mut body_buf = String::new();
+                        let _ = std::io::Read::read_to_string(&mut request.as_reader(), &mut body_buf);
+
+                        if let Ok(visa_payload) = serde_json::from_str::<serde_json::Value>(&body_buf) {
+                            let session_id = visa_payload.get("sessionId").and_then(|v| v.as_str()).unwrap_or("");
+                            let visa_by = visa_payload.get("visaBy").and_then(|v| v.as_str()).unwrap_or("");
+
+                            if session_id.is_empty() || visa_by.is_empty() {
+                                let err_json = r#"{"success": false, "error": "sessionId et visaBy requis"}"#;
+                                let mut resp = Response::from_string(err_json).with_status_code(400);
+                                resp.add_header(cors_origin);
+                                resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                                let _ = request.respond(resp);
+                            } else {
+                                let visa_date = visa_payload.get("visaDate").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let visa_notes = visa_payload.get("visaNotes").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let mut updated_db_opt: Option<String> = None;
+
+                                if let Ok(mut db_guard) = server_db.lock() {
+                                    if let Ok(mut db_val) = serde_json::from_str::<serde_json::Value>(&db_guard) {
+                                        if let Some(sessions) = db_val.get_mut("sessions").and_then(|v| v.as_array_mut()) {
+                                            for sess in sessions.iter_mut() {
+                                                if sess.get("id").and_then(|v| v.as_str()) == Some(session_id) {
+                                                    if let Some(cw) = sess.get_mut("cashWithdrawal").and_then(|v| v.as_object_mut()) {
+                                                        cw.insert("visaBy".to_string(), serde_json::Value::String(visa_by.to_string()));
+                                                        cw.insert("visaDate".to_string(), serde_json::Value::String(visa_date.clone()));
+                                                        cw.insert("visaNotes".to_string(), serde_json::Value::String(visa_notes.clone()));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if let Ok(serialized) = serde_json::to_string(&db_val) {
+                                            *db_guard = serialized.clone();
+                                            updated_db_opt = Some(serialized);
+                                        }
+                                    }
+                                }
+
+                                if let Some(updated_db) = updated_db_opt {
+                                    let new_hash = compute_hash(&updated_db);
+                                    if let Ok(mut guard) = server_hash.lock() {
+                                        *guard = new_hash;
+                                    }
+                                    if let Ok(mut guard) = server_version.lock() {
+                                        *guard += 1;
+                                    }
+                                    if let Ok(mut guard) = server_timestamp.lock() {
+                                        *guard = SystemTime::now()
+                                            .duration_since(UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_millis() as u64;
+                                    }
+                                }
+
+                                if let Ok(mut pending) = server_pending_visas.lock() {
+                                    pending.push(visa_payload.clone());
+                                }
+                                let _ = server_app_handle.emit("lan-session-visa", &visa_payload);
+
+                                let ok_json = r#"{"success": true, "message": "Visa enregistre"}"#;
+                                let mut resp = Response::from_string(ok_json);
+                                resp.add_header(cors_origin);
+                                resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                                let _ = request.respond(resp);
+                            }
+                        } else {
+                            let err_json = r#"{"success": false, "error": "JSON invalide"}"#;
+                            let mut resp = Response::from_string(err_json).with_status_code(400);
+                            resp.add_header(cors_origin);
+                            resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                            let _ = request.respond(resp);
+                        }
                     } else {
                         let not_found = r#"{"error": "Route inconnue"}"#;
                         let mut resp = Response::from_string(not_found).with_status_code(404);
@@ -280,9 +446,39 @@ pub fn start_server(port: u16, pin: Option<String>, initial_db: String) -> Resul
         client_count,
         shutdown_alert,
         shutdown_message,
+        pending_chat_messages,
+        pending_session_visas,
     });
 
     Ok(info)
+}
+
+pub fn take_incoming_chat_messages() -> Vec<serde_json::Value> {
+    let lock = SERVER_CONTROL.lock();
+    if let Ok(ref guard) = lock {
+        if let Some(ref ctrl) = **guard {
+            if let Ok(mut pending) = ctrl.pending_chat_messages.lock() {
+                let items = pending.clone();
+                pending.clear();
+                return items;
+            }
+        }
+    }
+    Vec::new()
+}
+
+pub fn take_incoming_visas() -> Vec<serde_json::Value> {
+    let lock = SERVER_CONTROL.lock();
+    if let Ok(ref guard) = lock {
+        if let Some(ref ctrl) = **guard {
+            if let Ok(mut pending) = ctrl.pending_session_visas.lock() {
+                let items = pending.clone();
+                pending.clear();
+                return items;
+            }
+        }
+    }
+    Vec::new()
 }
 
 pub fn stop_server() -> Result<(), String> {

@@ -1,5 +1,6 @@
 import './style.css';
 import { db } from './services/db';
+import { storageService } from './services/db/storageService';
 import { addonManager } from './services/addonManager';
 import { CartComponent } from './components/Cart';
 import { HeaderComponent } from './components/Header';
@@ -31,6 +32,31 @@ class App {
   private currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
   private cart: CartComponent;
   private activeChatView: ChatView | null = null;
+  private pendingRender = false;
+
+  private isUiBusy(): boolean {
+    if (document.querySelector('.fixed.inset-0.z-50, .fixed.inset-0.z-\\[10000\\]')) {
+      return true;
+    }
+    const active = document.activeElement as HTMLElement | null;
+    if (active && this.appRoot.contains(active)) {
+      const tag = active.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private flushPendingRenderIfIdle(): void {
+    if (!this.pendingRender) return;
+    setTimeout(() => {
+      if (this.pendingRender && !this.isUiBusy()) {
+        this.pendingRender = false;
+        this.render();
+      }
+    }, 50);
+  }
 
   constructor() {
     const root = document.getElementById('app');
@@ -76,9 +102,23 @@ class App {
       if (this.currentTab === 'chat' && this.activeChatView) {
         this.updateHeaderChatBadge();
         this.activeChatView.refreshMessages();
+      } else if (this.isUiBusy()) {
+        // Éviter de détruire le DOM pendant une saisie active ou lorsqu'une modale est ouverte
+        this.pendingRender = true;
+        this.updateHeaderChatBadge();
       } else {
+        this.pendingRender = false;
         this.render();
       }
+    });
+
+    this.appRoot.addEventListener('focusout', () => this.flushPendingRenderIfIdle());
+    window.addEventListener('click', () => this.flushPendingRenderIfIdle());
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.flushPendingRenderIfIdle();
+    });
+    window.addEventListener('beforeunload', () => {
+      void storageService.flushPendingWrites();
     });
 
     // Écouter les changements du gestionnaire d'addons
@@ -255,6 +295,7 @@ class App {
     // Conteneur principal de page (îlot 100% hauteur restant)
     const pageContainer = document.createElement('main');
     pageContainer.className = 'flex-1 flex flex-col min-h-0 overflow-hidden';
+    pageContainer.setAttribute('data-active-tab', this.currentTab);
 
     switch (this.currentTab) {
       case 'dashboard': {

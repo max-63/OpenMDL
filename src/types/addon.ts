@@ -1,6 +1,9 @@
 import type { Product, Sale, Session, Volunteer, CartItem, PerkSettings, SaleItem } from './index';
+import type { ActivityLog } from '../services/db/constants';
 
 export type AddonCategory = 'caisse' | 'marketing' | 'utilitaire' | 'jeu' | 'autre';
+
+export type PublicVolunteer = Omit<Volunteer, 'password' | 'pinCode'>;
 
 export interface AddonManifest {
   id: string;
@@ -11,6 +14,7 @@ export interface AddonManifest {
   authorUrl?: string;
   category: AddonCategory;
   icon: string; // Nom de l'icône dans Icons (ex: 'gift', 'puzzle', 'calculator', 'sparkles')
+  entryPoint?: string; // Chemin optionnel du fichier d'entrée (ex: '/src/index.ts')
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -20,7 +24,7 @@ export interface AddonFile {
   name: string;
   path: string;
   content: string;
-  language: 'typescript' | 'javascript' | 'json' | 'css' | 'markdown';
+  language: 'typescript' | 'javascript' | 'json' | 'css' | 'markdown' | 'html' | 'plaintext';
 }
 
 export interface AddonPackage {
@@ -43,31 +47,36 @@ export interface RegisteredWidget {
   render: (container: HTMLElement) => void;
 }
 
-export type OpenMdlEventType = 
-  | 'sale:completed'
-  | 'sale:cancelled'
-  | 'session:opened'
-  | 'session:closed'
-  | 'cart:updated'
-  | 'product:updated'
-  | 'product:deleted'
-  | 'stock:updated'
-  | 'theme:changed'
-  | 'volunteer:login'
-  | 'volunteer:logout'
-  | 'perk:claimed';
+export interface OpenMdlEventMap {
+  'sale:completed': Sale;
+  'sale:cancelled': { saleId: string; restoredStock: boolean };
+  'session:opened': Session;
+  'session:closed': Session;
+  'cart:updated': CartItem[];
+  'product:updated': Product;
+  'product:deleted': { id: string };
+  'stock:updated': { id: string; quantityAdded?: number; newStock?: number; reason?: string };
+  'theme:changed': 'dark' | 'light';
+  'volunteer:login': PublicVolunteer;
+  'volunteer:logout': PublicVolunteer | null;
+  'perk:claimed': { volunteerId: string; productId: string };
+}
 
-export type OpenMdlEventListener = (payload: any) => void;
+export type OpenMdlEventType = keyof OpenMdlEventMap;
+
+export type OpenMdlEventListener<K extends OpenMdlEventType = OpenMdlEventType> = (
+  payload: OpenMdlEventMap[K]
+) => void;
 
 // Interface exhaustive et universelle de l'API globale OpenMDL
 export interface IOpenMdlApi {
-  version: string;
-  appName: string;
-  author: string;
-  authorUrl: string;
+  readonly version: string;
+  readonly appName: string;
+  readonly author: string;
+  readonly authorUrl: string;
 
   // 1. Navigation & Onglets
-  navigation: {
+  readonly navigation: {
     registerTab: (tab: { id: string; label: string; icon?: string; render: (container: HTMLElement) => void }) => void;
     unregisterTab: (tabId: string) => void;
     goTo: (tabId: string) => void;
@@ -77,14 +86,14 @@ export interface IOpenMdlApi {
   };
 
   // 2. Dashboard & Widgets
-  dashboard: {
+  readonly dashboard: {
     registerWidget: (widget: { id: string; title: string; render: (container: HTMLElement) => void }) => void;
     unregisterWidget: (widgetId: string) => void;
     getRegisteredWidgets: () => RegisteredWidget[];
   };
 
   // 3. Produits & Catalogue
-  products: {
+  readonly products: {
     list: () => Product[];
     get: (id: string) => Product | undefined;
     getByCategory: (category: string) => Product[];
@@ -102,7 +111,7 @@ export interface IOpenMdlApi {
   };
 
   // 4. Caisse & Ventes
-  sales: {
+  readonly sales: {
     list: () => Sale[];
     get: (id: string) => Sale | undefined;
     getTodaySales: () => Sale[];
@@ -127,7 +136,7 @@ export interface IOpenMdlApi {
   };
 
   // 5. Panier en direct
-  cart: {
+  readonly cart: {
     getItems: () => CartItem[];
     getItem: (productId: string) => CartItem | undefined;
     add: (product: Product | string, quantity?: number) => void;
@@ -142,7 +151,7 @@ export interface IOpenMdlApi {
   };
 
   // 6. Séances de caisse
-  sessions: {
+  readonly sessions: {
     getActive: () => Session | null;
     isOpen: () => boolean;
     getHistory: () => Session[];
@@ -156,27 +165,27 @@ export interface IOpenMdlApi {
   };
 
   // 7. Bénévoles & Utilisateurs
-  volunteers: {
-    getCurrent: () => Volunteer | null;
-    list: () => Volunteer[];
-    get: (id: string) => Volunteer | undefined;
-    create: (volunteer: { username: string; name: string; password?: string; role?: string; isAdmin?: boolean }) => { success: boolean; volunteer?: Volunteer; message: string };
+  readonly volunteers: {
+    getCurrent: () => PublicVolunteer | null;
+    list: () => PublicVolunteer[];
+    get: (id: string) => PublicVolunteer | undefined;
+    create: (volunteer: { username: string; name: string; password?: string; role?: string; isAdmin?: boolean }) => { success: boolean; volunteer?: PublicVolunteer; message: string };
     update: (id: string, updates: Partial<Volunteer>) => { success: boolean; message: string };
     delete: (id: string) => { success: boolean; message: string };
-    login: (pinOrPassword: string) => { success: boolean; volunteer?: Volunteer; message: string };
+    login: (pinOrPassword: string) => { success: boolean; volunteer?: PublicVolunteer; message: string };
     logout: () => void;
     isAdmin: () => boolean;
   };
 
   // 8. Collation Bénévole (Perk)
-  perk: {
+  readonly perk: {
     getConfig: () => PerkSettings;
     updateConfig: (updates: Partial<PerkSettings>) => void;
     isEligible: (volunteerId?: string, sessionId?: string) => boolean;
   };
 
   // 9. Addons & Extensions
-  addons: {
+  readonly addons: {
     list: () => AddonPackage[];
     get: (id: string) => AddonPackage | undefined;
     isEnabled: (id: string) => boolean;
@@ -188,26 +197,27 @@ export interface IOpenMdlApi {
   };
 
   // 10. Événements en temps réel
-  events: {
-    on: (event: OpenMdlEventType, listener: OpenMdlEventListener) => () => void;
-    once: (event: OpenMdlEventType, listener: OpenMdlEventListener) => () => void;
-    off: (event: OpenMdlEventType, listener: OpenMdlEventListener) => void;
-    emit: (event: OpenMdlEventType, payload?: any) => void;
+  readonly events: {
+    on: <K extends OpenMdlEventType>(event: K, listener: OpenMdlEventListener<K>) => () => void;
+    once: <K extends OpenMdlEventType>(event: K, listener: OpenMdlEventListener<K>) => () => void;
+    off: <K extends OpenMdlEventType>(event: K, listener: OpenMdlEventListener<K>) => void;
+    emit: <K extends OpenMdlEventType>(event: K, payload?: OpenMdlEventMap[K]) => void;
   };
 
   // 11. Stockage persistant isolé
-  storage: {
-    get: <T = any>(key: string, defaultValue?: T) => T;
-    set: <T = any>(key: string, value: T) => void;
+  readonly storage: {
+    get: <T = unknown>(key: string, defaultValue?: T) => T;
+    set: <T = unknown>(key: string, value: T) => void;
     remove: (key: string) => void;
     clear: () => void;
     keys: () => string[];
-    getAll: () => Record<string, any>;
+    getAll: () => Record<string, unknown>;
   };
 
   // 12. Interface & Modales & Notifications
-  ui: {
+  readonly ui: {
     notify: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
+    /** @deprecated Utiliser `OpenMDL.ui.notify()` */
     toast: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
     confirm: (options: { title: string; message: string; confirmText?: string; cancelText?: string; onConfirm: () => void }) => void;
     prompt: (options: {
@@ -228,12 +238,13 @@ export interface IOpenMdlApi {
     }) => void;
     closeModal: () => void;
     renderMarkdown: (md: string) => string;
+    /** @deprecated Utiliser `OpenMDL.audio.play()` */
     playSound: (sound: 'beep' | 'success' | 'warning' | 'error' | 'cash') => void;
     toggleFullscreen: () => void;
   };
 
   // 13. Synthétiseur Audio WebAudio (100% hors-ligne)
-  audio: {
+  readonly audio: {
     play: (sound: 'beep' | 'success' | 'warning' | 'error' | 'cash') => void;
     beep: (freq?: number, durationMs?: number, type?: OscillatorType) => void;
     isMuted: () => boolean;
@@ -241,7 +252,7 @@ export interface IOpenMdlApi {
   };
 
   // 14. Thème & Styles
-  theme: {
+  readonly theme: {
     getTheme: () => 'dark' | 'light';
     setTheme: (theme: 'dark' | 'light') => void;
     toggleTheme: () => 'dark' | 'light';
@@ -250,11 +261,12 @@ export interface IOpenMdlApi {
   };
 
   // 15. Système & Sauvegardes
-  system: {
-    version: string;
-    appName: string;
-    author: string;
-    portfolioUrl: string;
+  readonly system: {
+    readonly version: string;
+    readonly appName: string;
+    readonly author: string;
+    /** @deprecated Utiliser `OpenMDL.authorUrl` */
+    readonly portfolioUrl: string;
     getInfo: () => {
       version: string;
       totalSales: number;
@@ -266,12 +278,12 @@ export interface IOpenMdlApi {
     exportBackup: () => string;
     importBackup: (jsonData: string) => { success: boolean; message: string };
     resetData: () => void;
-    getActivityLogs: () => any[];
+    getActivityLogs: () => ActivityLog[];
     logActivity: (type: 'INFO' | 'SALE' | 'RESTOCK' | 'SESSION' | 'BACKUP' | 'WARNING' | 'SECURITY', message: string) => void;
   };
 
   // 16. Utilitaires universels
-  utils: {
+  readonly utils: {
     formatPrice: (amount: number) => string;
     formatDate: (date: string | Date) => string;
     formatTime: (date: string | Date) => string;
