@@ -1,23 +1,87 @@
 import { db } from '../services/db';
 import { Icons } from '../components/Icons';
 import { escapeHtml, openExternalUrl } from '../utils/security';
-import { updater, UpdateState } from '../services/updater';
-import { PerkEligibilityRule, EURO_DENOMINATIONS, CashFloatSettings } from '../types';
-import { syncService, SyncConfig, LanServerStatus } from '../services/syncService';
+import { updater } from '../services/updater';
+import {
+  PerkEligibilityRule,
+  EURO_DENOMINATIONS,
+  PERMISSION_FLAGS_META,
+  UserPermissions,
+  VolunteerPerkMode,
+  VolunteerPerkPolicy,
+  DEFAULT_VOLUNTEER_PERK_POLICY,
+  getDefaultPermissionsForRole,
+  resolveVolunteerPermissions
+} from '../types';
 import { AppDialog } from '../components/AppDialog';
-import { packBackupBinary, unpackBackupBinary, listDiskBackups, readBackupFromDisk, triggerFileDownload } from '../services/binaryCodec';
 import { kofiService } from '../services/kofiService';
 
 export class SettingsView {
   private onSettingsChanged?: () => void;
+  private onNavigate?: (tab: string) => void;
   private feedbackMessage: { text: string; type: 'success' | 'error' | 'info' } | null = null;
-  private syncFeedbackMessage: { text: string; type: 'success' | 'error' | 'info' } | null = null;
   private editingPasswordUserId: string | null = null;
   private editingNameUserId: string | null = null;
+  private editingPermissionsUserId: string | null = null;
   private revealedPasswords: Set<string> = new Set();
 
-  constructor(onSettingsChanged?: () => void) {
+  private formatPerkPolicyBadge(policy?: VolunteerPerkPolicy): { label: string; classes: string } {
+    const mode = policy?.mode || 'inherit';
+    if (mode === 'none') {
+      return {
+        label: 'Aucune conso',
+        classes: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+      };
+    }
+    if (mode === 'custom') {
+      const qty = Math.max(1, policy?.quantity || 1);
+      const every = Math.max(1, policy?.everyNSessions || 1);
+      const freq = every > 1 ? ` / ${every} séances` : ' / séance';
+      const suffix = policy?.ignoreThreshold ? ' • sans seuil' : '';
+      return {
+        label: `${qty} conso${qty > 1 ? 's' : ''}${freq}${suffix}`,
+        classes: 'bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/20'
+      };
+    }
+    return {
+      label: 'Conso : règle globale',
+      classes: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+    };
+  }
+
+  private getRoleBadge(role: string, isAdmin: boolean): { label: string; classes: string; isShield: boolean } {
+    if (isAdmin) {
+      return {
+        label: 'Administrateur',
+        classes: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/20 font-extrabold',
+        isShield: true
+      };
+    }
+    const r = (role || '').toLowerCase();
+    if (r.includes('surveillant') || r.includes('vie scolaire') || r.includes('cpe') || r.includes('visco')) {
+      return {
+        label: 'Surveillant / Vie Scolaire',
+        classes: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/20 font-bold',
+        isShield: false
+      };
+    }
+    if (r.includes('bureau') || r.includes('trésor') || r.includes('tresor') || r.includes('président') || r.includes('secrét') || r.includes('cvl')) {
+      return {
+        label: role || 'Bureau MDL',
+        classes: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 font-bold',
+        isShield: false
+      };
+    }
+    return {
+      label: role || 'Bénévole',
+      classes: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-semibold',
+      isShield: false
+    };
+  }
+
+  constructor(onSettingsChanged?: () => void, onNavigate?: (tab: string) => void) {
     this.onSettingsChanged = onSettingsChanged;
+    this.onNavigate = onNavigate;
   }
 
   public render(): HTMLElement {
@@ -35,6 +99,8 @@ export class SettingsView {
 
     const volunteers = db.getVolunteers();
     const currentVolunteer = db.getCurrentVolunteer();
+    const isAdmin = !!currentVolunteer?.isAdmin;
+    const canAccessSystem = db.hasPermission('canAccessSystem');
     const adminCount = volunteers.filter(v => v.isAdmin).length;
     const activeCount = volunteers.filter(v => !v.isSuspended).length;
     const suspendedCount = volunteers.filter(v => v.isSuspended).length;
@@ -43,12 +109,8 @@ export class SettingsView {
     const autoCalcEnabled = cashFloatSettings.autoCalculationEnabled !== false;
     const baseCashFloatTotal = db.calculateBaseCashFloatTotal(cashFloatSettings.baseCounts);
     const carriedDifferencesEntries = Object.entries(cashFloatSettings.carriedOverDifferences || {}).filter(([_, diff]) => diff !== 0);
-    const appProfile = db.getAppProfile();
-    const syncConfig = syncService.getConfig();
-    const serverStatus = syncService.cachedServerStatus;
-    const isServerRunning = !!serverStatus?.running;
-    const serverIp = syncService.cachedLocalIp || '127.0.0.1';
-    const serverPort = serverStatus?.port || syncConfig.lan.port || 4123;
+    const chatSettings = db.getChatSettings();
+    const defaultCreatePerms = getDefaultPermissionsForRole('Bénévole Permanence', false);
 
     container.innerHTML = `
       <!-- En-tête de la page Paramètres -->
@@ -58,19 +120,19 @@ export class SettingsView {
             ${Icons.settings('w-6 h-6')}
           </div>
           <div>
-            <div class="flex items-center gap-2">
-              <h1 class="text-lg font-black text-slate-900 dark:text-white tracking-tight">Gestion des Utilisateurs & Sécurité</h1>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h1 class="text-lg font-black text-slate-900 dark:text-white tracking-tight">Paramètres & Gestion</h1>
               <span class="px-2.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px] font-extrabold uppercase tracking-wide border border-orange-500/20">
-                Espace Administrateur
+                ${isAdmin ? 'Espace Administrateur' : 'Gestion & Comptes'}
               </span>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-              Créez les comptes bénévoles avec leurs mots de passe, suspendez ou supprimez les accès au foyer de la MDL.
+              Gérez les comptes bénévoles, leurs permissions, la collation offerte et la messagerie du foyer.
             </p>
           </div>
         </div>
 
-        <!-- Badges statistiques rapides & Bouton Crédits -->
+        <!-- Badges statistiques rapides & Raccourcis -->
         <div class="flex items-center gap-2 flex-wrap">
           <div class="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-center">
             <div class="text-[9px] font-bold text-slate-400 uppercase">Total</div>
@@ -89,10 +151,22 @@ export class SettingsView {
             <div class="text-xs font-black text-rose-600 dark:text-rose-400">${suspendedCount}</div>
           </div>
 
+          ${canAccessSystem ? `
+            <button
+              type="button"
+              id="btn-goto-system"
+              class="px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer border border-emerald-500/25 ml-1"
+              title="Ouvrir les réglages techniques (Base de données, LAN, Profil PC, Sauvegardes)"
+            >
+              ${Icons.server('w-4 h-4 text-emerald-500')}
+              <span>Système</span>
+            </button>
+          ` : ''}
+
           <button 
             type="button" 
             id="btn-goto-credits"
-            class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer border border-slate-200 dark:border-slate-700 ml-1"
+            class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer border border-slate-200 dark:border-slate-700"
             title="Consulter les crédits et mentions légales du logiciel"
           >
             ${Icons.shieldCheck('w-4 h-4 text-emerald-500')}
@@ -109,584 +183,14 @@ export class SettingsView {
         } border text-xs font-bold flex items-center justify-between animate-enter">
           <div class="flex items-center gap-2">
             ${this.feedbackMessage.type === 'success' ? Icons.check('w-4 h-4') : Icons.alertTriangle('w-4 h-4')}
-            <span>${this.feedbackMessage.text}</span>
+            <span>${escapeHtml(this.feedbackMessage.text)}</span>
           </div>
-          <button id="btn-close-feedback" class="hover:opacity-75 text-xs font-black">&times;</button>
+          <button id="btn-close-feedback" class="hover:opacity-75 text-xs font-black cursor-pointer">&times;</button>
         </div>
       ` : ''}
 
-      <!-- Carte Profil de la Machine (Foyer vs Vie Scolaire) -->
-      <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div class="flex items-center gap-3.5">
-            <div class="w-11 h-11 rounded-2xl ${appProfile === 'visco' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20' : 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20'} flex items-center justify-center font-bold flex-shrink-0">
-              ${appProfile === 'visco' ? Icons.vault('w-5 h-5') : Icons.cart('w-5 h-5')}
-            </div>
-            <div>
-              <div class="flex items-center gap-2 flex-wrap">
-                <h2 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Profil d'Utilisation de ce PC</h2>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${appProfile === 'visco' ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30' : 'bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30'}">
-                  ${appProfile === 'visco' ? 'Poste Vie Scolaire (Contrôle & Coffre)' : 'Poste Foyer (Caisse & Vente)'}
-                </span>
-              </div>
-              <p class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                Adaptez l'interface au rôle de ce poste : caisse de vente pour les permanences ou contrôle décaisse/coffre pour la Vie Scolaire.
-              </p>
-            </div>
-          </div>
-
-          <!-- Boutons de bascule de profil -->
-          <div class="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 self-start md:self-auto">
-            <button 
-              type="button" 
-              data-app-profile="foyer"
-              class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                appProfile === 'foyer'
-                  ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs border border-slate-200/60 dark:border-slate-700'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-              }"
-            >
-              ${Icons.cart('w-3.5 h-3.5')}
-              <span>Poste Foyer (Caisse)</span>
-            </button>
-            <button 
-              type="button" 
-              data-app-profile="visco"
-              class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                appProfile === 'visco'
-                  ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs border border-slate-200/60 dark:border-slate-700'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-              }"
-            >
-              ${Icons.vault('w-3.5 h-3.5')}
-              <span>Poste Vie Scolaire (Décaisse)</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="p-3 rounded-2xl ${appProfile === 'visco' ? 'bg-sky-500/5 border border-sky-500/15 text-sky-800 dark:text-sky-200' : 'bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400'} text-xs leading-relaxed">
-          ${appProfile === 'visco'
-            ? '<strong>Mode Vie Scolaire actif :</strong> Le dashboard de vente au comptoir est masqué. L\'interface se focalise sur le registre des décaissements, la répartition des coupures remises au coffre, le visa des dépôts et les bénévoles habilités. La réplication locale conserve toutes les données hors-ligne même si le PC foyer est éteint.'
-            : '<strong>Mode Caisse Foyer actif :</strong> Toutes les fonctionnalités de vente, catalogue, restock et encaissement sont disponibles au comptoir du foyer.'
-          }
-        </div>
-      </div>
-
-      <!-- Carte Réseau & Architecture Multi-Postes -->
-      <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-5">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div class="flex items-center gap-3.5">
-            <div class="w-11 h-11 rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 flex items-center justify-center font-bold flex-shrink-0">
-              ${Icons.network('w-5 h-5')}
-            </div>
-            <div>
-              <div class="flex items-center gap-2 flex-wrap">
-                <h2 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Réseau & Synchronisation Multi-Postes</h2>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${
-                  syncConfig.mode === 'standalone' ? 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20' :
-                  syncConfig.mode === 'lan' ? (syncConfig.lan.role === 'server' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20') :
-                  'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                }">
-                  ${syncConfig.mode === 'standalone' ? 'Autonome (Solo)' :
-                    syncConfig.mode === 'lan' ? (syncConfig.lan.role === 'server' ? 'LAN - Serveur Caisse' : 'LAN - Client Réseau') :
-                    'Clé USB / Fichier Partagé'}
-                </span>
-              </div>
-              <p class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                Choisissez le mode d'opération : caisse unique autonome, partage en direct sur réseau local (Wi-Fi/LAN), ou synchronisation par clé USB.
-              </p>
-            </div>
-          </div>
-
-          <!-- Onglets de sélection du mode d'architecture -->
-          <div class="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 self-start md:self-auto flex-wrap">
-            <button 
-              type="button" 
-              data-sync-mode="standalone"
-              class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                syncConfig.mode === 'standalone'
-                  ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs border border-slate-200/60 dark:border-slate-700'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-              }"
-            >
-              ${Icons.hardDrive('w-3.5 h-3.5')}
-              <span>Autonome (Solo)</span>
-            </button>
-
-            <button 
-              type="button" 
-              data-sync-mode="lan"
-              class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                syncConfig.mode === 'lan'
-                  ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs border border-slate-200/60 dark:border-slate-700'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-              }"
-            >
-              ${Icons.network('w-3.5 h-3.5')}
-              <span>Réseau Local (LAN)</span>
-            </button>
-
-            <button 
-              type="button" 
-              data-sync-mode="usb"
-              class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                syncConfig.mode === 'usb'
-                  ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs border border-slate-200/60 dark:border-slate-700'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-              }"
-            >
-              ${Icons.folder('w-3.5 h-3.5')}
-              <span>Clé USB / Fichier</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Feedback de synchronisation dédié si présent -->
-        ${this.syncFeedbackMessage ? `
-          <div class="p-3.5 rounded-2xl ${
-            this.syncFeedbackMessage.type === 'success'
-              ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-600 dark:text-emerald-400'
-              : this.syncFeedbackMessage.type === 'error'
-              ? 'bg-rose-500/10 border-rose-500/25 text-rose-600 dark:text-rose-400'
-              : 'bg-sky-500/10 border-sky-500/25 text-sky-600 dark:text-sky-400'
-          } border text-xs font-bold flex items-center justify-between animate-enter">
-            <div class="flex items-center gap-2">
-              ${this.syncFeedbackMessage.type === 'success' ? Icons.check('w-4 h-4 flex-shrink-0') : Icons.alertTriangle('w-4 h-4 flex-shrink-0')}
-              <span>${escapeHtml(this.syncFeedbackMessage.text)}</span>
-            </div>
-            <button id="btn-close-sync-feedback" class="hover:opacity-75 text-xs font-black cursor-pointer">&times;</button>
-          </div>
-        ` : ''}
-
-        <!-- 1. Vue Mode Autonome -->
-        ${syncConfig.mode === 'standalone' ? `
-          <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div class="flex items-start gap-3">
-              <div class="w-9 h-9 rounded-xl bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 flex items-center justify-center flex-shrink-0 mt-0.5">
-                ${Icons.hardDrive('w-4 h-4')}
-              </div>
-              <div>
-                <div class="text-xs font-extrabold text-slate-800 dark:text-slate-200">Fonctionnement 100% Autonome & Hors-Ligne</div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                  Cette caisse fonctionne de manière indépendante avec sa base de données locale. Aucune connexion réseau ni support amovible n'est utilisé. Idéal pour un foyer avec un seul poste informatique.
-                </p>
-              </div>
-            </div>
-            <span class="px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-black border border-emerald-500/20 flex-shrink-0 text-center">
-              Prêt pour encaissement
-            </span>
-          </div>
-        ` : ''}
-
-        <!-- 2. Vue Mode Réseau Local (LAN) -->
-        ${syncConfig.mode === 'lan' ? `
-          <div class="space-y-4">
-            <!-- Sélecteur Rôle LAN (Serveur vs Client) -->
-            <div class="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3 flex-wrap">
-              <button 
-                type="button" 
-                data-lan-role="server"
-                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  syncConfig.lan.role === 'server'
-                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }"
-              >
-                ${Icons.server('w-3.5 h-3.5')}
-                <span>Serveur Hôte (Caisse Principale du Foyer)</span>
-              </button>
-              <button 
-                type="button" 
-                data-lan-role="client"
-                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  syncConfig.lan.role === 'client'
-                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }"
-              >
-                ${Icons.wifi('w-3.5 h-3.5')}
-                <span>Client Réseau (Vie Scolaire / Bureau MDL)</span>
-              </button>
-            </div>
-
-            <!-- Sous-vue Serveur Hôte -->
-            ${syncConfig.lan.role === 'server' ? `
-              <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
-                <!-- Bloc Statut & Adresse IP détectée (7 col) -->
-                <div class="md:col-span-7 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-3">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                      <span class="w-3 h-3 rounded-full ${isServerRunning ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50 animate-pulse' : 'bg-slate-400'}"></span>
-                      <span class="text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                        ${isServerRunning ? 'Serveur LAN en écoute active' : 'Serveur LAN inactif'}
-                      </span>
-                    </div>
-                    <button 
-                      type="button" 
-                      id="btn-refresh-local-ip"
-                      class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer" 
-                      title="Réactualiser l'adresse IP locale"
-                    >
-                      ${Icons.refresh('w-3.5 h-3.5')}
-                    </button>
-                  </div>
-
-                  <!-- Affichage de l'URL à copier pour les clients -->
-                  <div class="space-y-1">
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                      Adresse URL à renseigner sur les postes clients
-                    </label>
-                    <div class="flex items-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 focus-within:border-orange-500 transition-colors">
-                      <span class="font-mono text-xs font-black text-orange-600 dark:text-orange-400 px-2 flex-1 select-all truncate" id="text-server-full-url">
-                        http://${serverIp}:${serverPort}
-                      </span>
-                      <button 
-                        type="button" 
-                        id="btn-copy-server-url"
-                        class="px-2.5 py-1 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-600 dark:text-orange-400 text-[11px] font-extrabold border border-orange-500/20 transition-all flex items-center gap-1 cursor-pointer flex-shrink-0"
-                      >
-                        ${Icons.clipboardCheck('w-3.5 h-3.5')}
-                        <span id="btn-copy-server-text">Copier</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Les ordinateurs connectés au même réseau Wi-Fi ou câble Ethernet peuvent se synchroniser en direct dès que le serveur est démarré.
-                  </p>
-                </div>
-
-                <!-- Bloc Configuration Port & PIN + Bouton On/Off (5 col) -->
-                <div class="md:col-span-5 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 flex flex-col justify-between gap-3">
-                  <div class="space-y-2.5">
-                    <div class="grid grid-cols-2 gap-2">
-                      <div class="space-y-1">
-                        <label for="input-lan-server-port" class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Port d'écoute</label>
-                        <input 
-                          type="number" 
-                          id="input-lan-server-port" 
-                          value="${serverPort}" 
-                          min="1024" 
-                          max="65535"
-                          class="w-full px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-800 dark:text-white outline-none focus:border-orange-500"
-                        />
-                      </div>
-                      <div class="space-y-1">
-                        <label for="input-lan-server-pin" class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Code PIN (Optionnel)</label>
-                        <input 
-                          type="text" 
-                          id="input-lan-server-pin" 
-                          value="${escapeHtml(syncConfig.lan.pin)}" 
-                          placeholder="ex: 1234"
-                          maxlength="16"
-                          class="w-full px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-800 dark:text-white outline-none focus:border-orange-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <button 
-                    type="button" 
-                    id="btn-toggle-lan-server"
-                    class="w-full py-2.5 px-3 rounded-xl font-extrabold text-xs tracking-wide transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
-                      isServerRunning
-                        ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/20'
-                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
-                    }"
-                  >
-                    ${isServerRunning ? Icons.pause('w-4 h-4') : Icons.play('w-4 h-4')}
-                    <span>${isServerRunning ? 'Arrêter le Serveur LAN' : 'Démarrer le Serveur LAN'}</span>
-                  </button>
-                </div>
-              </div>
-            ` : `
-              <!-- Sous-vue Client Réseau -->
-              <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-                  <div class="md:col-span-6 space-y-1">
-                    <label for="input-lan-client-url" class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
-                      Adresse URL du Serveur de Caisse
-                    </label>
-                    <input 
-                      type="text" 
-                      id="input-lan-client-url" 
-                      value="${escapeHtml(syncConfig.lan.serverUrl)}" 
-                      placeholder="http://192.168.1.50:4123"
-                      class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-medium text-slate-800 dark:text-white outline-none focus:border-orange-500"
-                    />
-                  </div>
-
-                  <div class="md:col-span-3 space-y-1">
-                    <label for="input-lan-client-pin" class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
-                      Code PIN (si configuré)
-                    </label>
-                    <input 
-                      type="text" 
-                      id="input-lan-client-pin" 
-                      value="${escapeHtml(syncConfig.lan.pin)}" 
-                      placeholder="Vide si aucun PIN"
-                      class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-medium text-slate-800 dark:text-white outline-none focus:border-orange-500"
-                    />
-                  </div>
-
-                  <div class="md:col-span-3 space-y-1">
-                    <label for="select-lan-auto-sync" class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
-                      Synchro Automatique
-                    </label>
-                    <select 
-                      id="select-lan-auto-sync"
-                      class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-white outline-none focus:border-orange-500 cursor-pointer"
-                    >
-                      <option value="0" ${syncConfig.lan.autoSyncInterval === 0 ? 'selected' : ''}>Manuelle uniquement</option>
-                      <option value="10" ${syncConfig.lan.autoSyncInterval === 10 ? 'selected' : ''}>Toutes les 10 secondes</option>
-                      <option value="30" ${syncConfig.lan.autoSyncInterval === 30 ? 'selected' : ''}>Toutes les 30 secondes</option>
-                      <option value="60" ${syncConfig.lan.autoSyncInterval === 60 ? 'selected' : ''}>Toutes les 60 secondes</option>
-                    </select>
-                  </div>
-                </div>
-
-                <!-- Boutons Tester et Synchroniser -->
-                <div class="flex items-center justify-between gap-3 pt-1 flex-wrap">
-                  <div class="flex items-center gap-2">
-                    <button 
-                      type="button" 
-                      id="btn-test-lan-client"
-                      class="px-3.5 py-2 rounded-xl bg-slate-200/80 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                    >
-                      ${Icons.wifi('w-3.5 h-3.5')}
-                      <span>Tester la connexion</span>
-                    </button>
-
-                    <button 
-                      type="button" 
-                      id="btn-sync-lan-now"
-                      class="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm shadow-orange-600/20 active:scale-[0.98]"
-                    >
-                      ${Icons.refresh('w-3.5 h-3.5')}
-                      <span>Synchroniser maintenant</span>
-                    </button>
-                  </div>
-
-                  ${syncService.lastSyncTime ? `
-                    <div class="text-[11px] font-mono text-slate-400 flex items-center gap-1.5">
-                      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                      <span>Dernière synchro : ${syncService.lastSyncTime}</span>
-                    </div>
-                  ` : ''}
-                </div>
-              </div>
-            `}
-          </div>
-        ` : ''}
-
-        <!-- 3. Vue Mode Clé USB / Fichier Partagé -->
-        ${syncConfig.mode === 'usb' ? `
-          <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-4">
-            <div class="space-y-1.5">
-              <label for="input-usb-filepath" class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
-                Chemin d'accès au fichier de synchronisation (Clé USB ou lecteur réseau partagé P:\\)
-              </label>
-              <div class="flex items-center gap-2">
-                <input 
-                  type="text" 
-                  id="input-usb-filepath" 
-                  value="${escapeHtml(syncConfig.usb.filePath)}" 
-                  placeholder="/media/usb/openmdl_sync.json ou E:\\openmdl_sync.json"
-                  class="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-medium text-slate-800 dark:text-white outline-none focus:border-orange-500"
-                />
-              </div>
-              <p class="text-[11px] text-slate-400 leading-relaxed">
-                Renseignez le chemin complet du fichier JSON (ex: sous Windows <code>E:\openmdl_sync.json</code>, sous Linux <code>/media/usb/openmdl_sync.json</code>).
-              </p>
-            </div>
-
-            <div class="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3">
-              <div>
-                <div class="text-xs font-bold text-slate-800 dark:text-slate-200">Export automatique lors de la clôture de caisse</div>
-                <div class="text-[10px] text-slate-400">Écrit automatiquement l'état à jour sur la clé dès qu'un bénévole ferme sa session</div>
-              </div>
-              <input 
-                type="checkbox" 
-                id="check-usb-auto-close" 
-                ${syncConfig.usb.autoSyncOnClose ? 'checked' : ''} 
-                class="w-4 h-4 rounded text-orange-600 focus:ring-orange-500 cursor-pointer accent-orange-600"
-              />
-            </div>
-
-            <div class="flex items-center justify-between gap-3 pt-1 flex-wrap">
-              <div class="flex items-center gap-2">
-                <button 
-                  type="button" 
-                  id="btn-export-usb"
-                  class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-600/20 active:scale-[0.98]"
-                >
-                  ${Icons.save('w-3.5 h-3.5')}
-                  <span>Exporter la base vers la clé USB</span>
-                </button>
-
-                <button 
-                  type="button" 
-                  id="btn-import-usb"
-                  class="px-4 py-2 rounded-xl bg-slate-200/80 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  ${Icons.download('w-3.5 h-3.5')}
-                  <span>Importer depuis la clé USB</span>
-                </button>
-              </div>
-
-              ${syncService.lastSyncTime ? `
-                <div class="text-[11px] font-mono text-slate-400 flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span>Dernière opération : ${syncService.lastSyncTime}</span>
-                </div>
-              ` : ''}
-            </div>
-          </div>
-        ` : ''}
-      <!-- Carte Messagerie & Salons de Discussion Décentralisés -->
-      <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div class="flex items-center gap-3.5">
-            <div class="w-11 h-11 rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 flex items-center justify-center font-bold flex-shrink-0">
-              ${Icons.messageSquare('w-5 h-5')}
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h2 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Messagerie Instantanée & Salons Locaux</h2>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${
-                  db.getChatSettings().enabled
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-                    : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
-                }">
-                  ${db.getChatSettings().enabled ? 'Active' : 'Désactivée'}
-                </span>
-              </div>
-              <p class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                Activez ou désactivez le chat inter-postes décentralisé, configurez la purge automatique des messages (#Général, #Admins & groupes).
-              </p>
-            </div>
-          </div>
-
-          <!-- Switch Activation Chat -->
-          <div class="flex items-center gap-3 self-start sm:self-auto">
-            <span class="text-xs font-bold text-slate-700 dark:text-slate-300">
-              ${db.getChatSettings().enabled ? 'Messagerie activée' : 'Messagerie coupée'}
-            </span>
-            <button 
-              type="button" 
-              id="btn-toggle-chat-enabled"
-              class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
-                db.getChatSettings().enabled ? 'bg-orange-600' : 'bg-slate-300 dark:bg-slate-700'
-              }"
-            >
-              <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out mt-0.5 ${
-                db.getChatSettings().enabled ? 'translate-x-5.5' : 'translate-x-0.5'
-              }"></span>
-            </button>
-          </div>
-        </div>
-
-        ${db.getChatSettings().enabled ? `
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800">
-            
-            <!-- Sélecteur de Rétention -->
-            <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2">
-              <label for="select-chat-retention" class="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                Durée de rétention des messages (Purge automatique)
-              </label>
-              <select 
-                id="select-chat-retention"
-                class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-white outline-none focus:border-orange-500 cursor-pointer"
-              >
-                <option value="15" ${db.getChatSettings().retentionDays === 15 ? 'selected' : ''}>15 jours (Très léger)</option>
-                <option value="30" ${db.getChatSettings().retentionDays === 30 ? 'selected' : ''}>30 jours (1 mois - Recommandé)</option>
-                <option value="70" ${db.getChatSettings().retentionDays === 70 ? 'selected' : ''}>70 jours (1 trimestre scolaire)</option>
-                <option value="180" ${db.getChatSettings().retentionDays === 180 ? 'selected' : ''}>180 jours (6 mois)</option>
-                <option value="0" ${db.getChatSettings().retentionDays === 0 ? 'selected' : ''}>Illimitée (Conserver tous les messages)</option>
-              </select>
-              <p class="text-[11px] text-slate-400">
-                Les messages plus anciens sont supprimés de la base de données automatiquement pour préserver l'espace disque.
-              </p>
-            </div>
-
-            <!-- Résumé des salons & sécurité -->
-            <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 flex flex-col justify-between gap-2">
-              <div>
-                <div class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  ${Icons.shieldCheck('w-4 h-4 text-emerald-500')}
-                  <span>Chiffrement & Signature Anti-Usurpation</span>
-                </div>
-                <div class="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                  Tous les messages sont signés avec le mot de passe de l'auteur. Aucun élève ne peut falsifier l'identité d'un autre bénévole ou d'un adulte de la Vie Scolaire.
-                </div>
-              </div>
-              <div class="text-[10px] font-mono text-slate-400">
-                Salons actifs : ${db.getChatChannels().map(c => '#' + c.name).join(', ')}
-              </div>
-            </div>
-
-          </div>
-        ` : ''}
-      </div>
-
-      <!-- Carte Moteur de Données : SQLite Embarqué Zéro Maintenance -->
-      <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div class="flex items-center gap-3.5">
-            <div class="w-11 h-11 rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 flex items-center justify-center font-bold flex-shrink-0">
-              ${Icons.database('w-5 h-5')}
-            </div>
-            <div>
-              <div class="flex items-center gap-2 flex-wrap">
-                <h2 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Moteur de Données & Stockage</h2>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span>SQLite Embarqué Intégré (Recommandé)</span>
-                </span>
-              </div>
-              <p class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                Base de données ultra-rapide, autonome et embarquée dans l'application. Aucune installation externe requise.
-              </p>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <span class="px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px] font-mono text-slate-600 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700">
-              Format : SQLite (.db / .mdlb)
-            </span>
-          </div>
-        </div>
-
-        <div class="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="space-y-1">
-            <div class="flex items-center gap-2 font-bold text-emerald-700 dark:text-emerald-300">
-              ${Icons.shieldCheck('w-4 h-4')}
-              <span>Moteur SQLite Actif & Optimisé</span>
-            </div>
-            <p class="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-              Toutes les transactions, stocks, bénévoles, messages du chat et sessions sont stockés localement avec intégrité ACID et redondance binaire CRC32.
-            </p>
-          </div>
-
-          <div class="flex items-center gap-2 self-end sm:self-center">
-            <button 
-              type="button" 
-              id="btn-optimize-sqlite-db"
-              class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-              title="Vérifier et compacter la base SQLite"
-            >
-              ${Icons.refresh('w-3.5 h-3.5')}
-              <span>Vérifier l'intégrité</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-
-      </div>
-
-      <!-- Grille Principale Réorganisée (Disposition ultra-optimisée anti-scroll et sans vide) -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
+      <!-- Grille Ligne 1 : Équipe & Utilisateurs -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
         
         <!-- ==================== LIGNE 1 : ÉQUIPE & UTILISATEURS ==================== -->
         
@@ -761,7 +265,7 @@ export class SettingsView {
                     class="w-full px-3 py-2 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-orange-500 transition-colors"
                   >
                     <option value="Bénévole Permanence">Bénévole Permanence</option>
-                    <option value="Vie Scolaire">Vie Scolaire</option>
+                    <option value="Surveillant / Vie Scolaire">Surveillant / Vie Scolaire</option>
                     <option value="Bureau MDL">Bureau MDL</option>
                     <option value="Administrateur">Administrateur</option>
                   </select>
@@ -773,7 +277,7 @@ export class SettingsView {
                     ${Icons.shield('w-4 h-4 text-orange-500')}
                     <div>
                       <div class="text-xs font-bold text-slate-800 dark:text-slate-200">Droits Administrateur</div>
-                      <div class="text-[10px] text-slate-400">Accès à cette page des réglages</div>
+                      <div class="text-[10px] text-slate-400">Active l'ensemble des permissions par défaut</div>
                     </div>
                   </div>
                   <input 
@@ -781,6 +285,81 @@ export class SettingsView {
                     id="new-user-is-admin" 
                     class="w-4 h-4 rounded text-orange-600 focus:ring-orange-500 cursor-pointer accent-orange-600"
                   />
+                </div>
+
+                <!-- Flags de permissions granulaires -->
+                <div class="p-3 rounded-2xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Permissions du compte</span>
+                    <span class="text-[10px] text-slate-400">Pré-remplies selon le rôle</span>
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    ${PERMISSION_FLAGS_META.map(flag => `
+                      <label class="flex items-center gap-2 px-2 py-1.5 rounded-xl bg-white dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-700/60 cursor-pointer hover:border-orange-400 transition-colors" title="${escapeHtml(flag.description)}">
+                        <input
+                          type="checkbox"
+                          data-create-perm="${flag.key}"
+                          ${defaultCreatePerms[flag.key] ? 'checked' : ''}
+                          class="w-3.5 h-3.5 rounded text-orange-600 focus:ring-orange-500 accent-orange-600 cursor-pointer flex-shrink-0"
+                        />
+                        <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate">${escapeHtml(flag.shortLabel)}</span>
+                      </label>
+                    `).join('')}
+                  </div>
+                </div>
+
+                <!-- Politique de conso gratuite individuelle -->
+                <div class="p-3 rounded-2xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      ${Icons.gift('w-3.5 h-3.5 text-orange-500')}
+                      <span>Conso gratuite</span>
+                    </span>
+                  </div>
+                  <select
+                    id="new-user-perk-mode"
+                    class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:border-orange-500"
+                  >
+                    <option value="inherit">Règle globale du foyer (par défaut)</option>
+                    <option value="none">Aucune conso offerte (0)</option>
+                    <option value="custom">Personnalisée (quantité & fréquence)</option>
+                  </select>
+
+                  <div id="new-user-perk-custom-fields" class="hidden space-y-2 pt-1">
+                    <div class="grid grid-cols-2 gap-2">
+                      <div>
+                        <label for="new-user-perk-qty" class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Nb consos</label>
+                        <input
+                          type="number"
+                          id="new-user-perk-qty"
+                          min="1"
+                          max="20"
+                          value="1"
+                          class="w-full px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-900 dark:text-white outline-none focus:border-orange-500"
+                        />
+                      </div>
+                      <div>
+                        <label for="new-user-perk-every" class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Toutes les N séances</label>
+                        <input
+                          type="number"
+                          id="new-user-perk-every"
+                          min="1"
+                          max="20"
+                          value="1"
+                          title="1 = chaque séance, 2 = 1 fois sur 2, 4 = 1 fois sur 4"
+                          class="w-full px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-900 dark:text-white outline-none focus:border-orange-500"
+                        />
+                      </div>
+                    </div>
+                    <label class="flex items-center gap-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="new-user-perk-ignore-threshold"
+                        class="w-3.5 h-3.5 rounded accent-orange-600 cursor-pointer"
+                      />
+                      <span>Ignorer le seuil de ventes/articles (dispo immédiatement)</span>
+                    </label>
+                  </div>
                 </div>
 
                 <button 
@@ -813,12 +392,21 @@ export class SettingsView {
             </div>
 
             <!-- Liste des utilisateurs avec scroll élégant -->
-            <div class="space-y-2 overflow-y-auto pt-3 flex-1 pr-1 max-h-[380px]">
+            <div class="space-y-2 overflow-y-auto pt-3 flex-1 pr-1 max-h-[620px]">
               ${volunteers.map(v => {
                 const isCurrent = v.id === currentVolunteer?.id;
+                const isRootAdmin = v.id === 'vol-admin' || v.username === 'admin';
                 const isSuspended = !!v.isSuspended;
                 const isEditingPassword = this.editingPasswordUserId === v.id;
                 const isEditingName = this.editingNameUserId === v.id;
+                const isEditingPerms = this.editingPermissionsUserId === v.id;
+                const effPerms = resolveVolunteerPermissions(v);
+                const roleBadge = this.getRoleBadge(v.role, v.isAdmin);
+                const perkBadge = this.formatPerkPolicyBadge(v.perkPolicy);
+                const userPolicy = v.perkPolicy || DEFAULT_VOLUNTEER_PERK_POLICY;
+                const activeFlagLabels = PERMISSION_FLAGS_META.filter(f => effPerms[f.key]);
+                const standardRoles = ['Bénévole Permanence', 'Surveillant / Vie Scolaire', 'Bureau MDL', 'Administrateur'];
+                const hasCustomRole = v.role && !standardRoles.includes(v.role);
 
                 return `
                   <div class="p-3 rounded-2xl border ${isSuspended
@@ -870,18 +458,16 @@ export class SettingsView {
                         </div>
                       </div>
 
-                      <!-- Badges Statut & Rôle -->
-                      <div class="flex items-center gap-1.5 flex-shrink-0">
-                        ${v.isAdmin ? `
-                          <span class="px-2 py-0.5 rounded-lg bg-orange-500/15 text-orange-600 dark:text-orange-400 font-extrabold text-[10px] border border-orange-500/20 flex items-center gap-1">
-                            ${Icons.shield('w-3 h-3')}
-                            Administrateur
-                          </span>
-                        ` : `
-                          <span class="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold text-[10px]">
-                            Bénévole
-                          </span>
-                        `}
+                      <!-- Badges Statut, Conso & Rôle -->
+                      <div class="flex items-center gap-1.5 flex-wrap flex-shrink-0">
+                        <span class="px-2 py-0.5 rounded-lg text-[10px] ${roleBadge.classes} flex items-center gap-1">
+                          ${roleBadge.isShield ? Icons.shield('w-3 h-3') : ''}
+                          <span>${escapeHtml(roleBadge.label)}</span>
+                        </span>
+
+                        <span class="px-2 py-0.5 rounded-lg text-[10px] font-bold ${perkBadge.classes}">
+                          ${escapeHtml(perkBadge.label)}
+                        </span>
 
                         ${isSuspended ? `
                           <span class="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 font-extrabold text-[10px] border border-rose-500/20 flex items-center gap-1">
@@ -897,10 +483,39 @@ export class SettingsView {
                       </div>
                     </div>
 
+                    <!-- Résumé visuel des flags de permissions -->
+                    <div class="flex items-center gap-1 flex-wrap">
+                      ${activeFlagLabels.length === 0 ? `
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/10 text-rose-500 border border-rose-500/20">Aucun droit actif</span>
+                      ` : activeFlagLabels.map(f => `
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                          f.category === 'admin'
+                            ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20'
+                            : f.category === 'gestion'
+                              ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }">${escapeHtml(f.shortLabel)}</span>
+                      `).join('')}
+                    </div>
+
                     <!-- Barre d'actions -->
                     <div class="pt-1.5 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
                       
-                      <div class="flex items-center gap-1.5">
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        <!-- Bouton modifier Permissions & Conso -->
+                        <button
+                          type="button"
+                          data-toggle-perms-edit="${v.id}"
+                          class="px-2.5 py-1 rounded-lg ${isEditingPerms
+                            ? 'bg-orange-600 text-white shadow-xs'
+                            : 'bg-orange-500/10 hover:bg-orange-500/20 text-orange-700 dark:text-orange-300 border border-orange-500/20'
+                          } font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Modifier le rôle, les permissions et la conso gratuite"
+                        >
+                          ${Icons.shield('w-3 h-3')}
+                          <span>${isEditingPerms ? 'Fermer droits' : 'Permissions & Conso'}</span>
+                        </button>
+
                         <!-- Bouton modifier le nom / pseudo -->
                         <button 
                           type="button" 
@@ -996,6 +611,104 @@ export class SettingsView {
                       </form>
                     ` : ''}
 
+                    <!-- Sous-formulaire inline Permissions & Politique Conso -->
+                    ${isEditingPerms ? `
+                      <form data-form-edit-perms="${v.id}" class="mt-2 p-3.5 rounded-2xl bg-slate-100/90 dark:bg-slate-900/90 border border-orange-500/30 space-y-3 animate-enter">
+                        <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                          <span class="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                            ${Icons.shield('w-3.5 h-3.5 text-orange-500')}
+                            <span>Permissions & Politique Conso de ${escapeHtml(v.name)}</span>
+                          </span>
+                          <div class="flex flex-wrap items-center gap-1">
+                            <button type="button" data-preset-user="${v.id}" data-preset-role="Bénévole Permanence" data-preset-is-admin="0" class="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-bold hover:border-orange-400 cursor-pointer">Bénévole</button>
+                            <button type="button" data-preset-user="${v.id}" data-preset-role="Surveillant / Vie Scolaire" data-preset-is-admin="0" class="px-2 py-0.5 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 text-[10px] font-bold hover:bg-sky-500/20 cursor-pointer">Surveillant</button>
+                            <button type="button" data-preset-user="${v.id}" data-preset-role="Bureau MDL" data-preset-is-admin="0" class="px-2 py-0.5 rounded-lg bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 text-[10px] font-bold hover:bg-indigo-500/20 cursor-pointer">Bureau MDL</button>
+                            <button type="button" data-preset-user="${v.id}" data-preset-role="Administrateur" data-preset-is-admin="1" class="px-2 py-0.5 rounded-lg bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/20 text-[10px] font-bold hover:bg-orange-500/25 cursor-pointer">Admin</button>
+                          </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Rôle affiché</label>
+                            <select data-edit-role="${v.id}" class="w-full px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:border-orange-500">
+                              ${hasCustomRole ? `<option value="${escapeHtml(v.role)}" selected>${escapeHtml(v.role)}</option>` : ''}
+                              ${standardRoles.map(sr => `<option value="${escapeHtml(sr)}" ${v.role === sr ? 'selected' : ''}>${escapeHtml(sr)}</option>`).join('')}
+                            </select>
+                          </div>
+                          <div class="flex items-end">
+                            <label class="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 ${isRootAdmin ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}">
+                              <span class="text-xs font-bold text-slate-700 dark:text-slate-200">Droits Administrateur</span>
+                              <input type="checkbox" data-edit-is-admin="${v.id}" ${v.isAdmin ? 'checked' : ''} ${isRootAdmin ? 'disabled' : ''} class="w-4 h-4 rounded accent-orange-600" />
+                            </label>
+                          </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                          ${PERMISSION_FLAGS_META.map(flag => {
+                            const locked = isRootAdmin && (flag.key === 'canManageUsers' || flag.key === 'canAccessSystem');
+                            return `
+                              <label class="flex items-center gap-1.5 px-2 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ${locked ? 'opacity-65 cursor-not-allowed' : 'cursor-pointer hover:border-orange-400'} transition-colors" title="${escapeHtml(flag.description)}">
+                                <input
+                                  type="checkbox"
+                                  data-edit-perm="${v.id}:${flag.key}"
+                                  data-edit-perm-user="${v.id}"
+                                  data-edit-perm-key="${flag.key}"
+                                  ${effPerms[flag.key] ? 'checked' : ''}
+                                  ${locked ? 'disabled' : ''}
+                                  class="w-3.5 h-3.5 rounded accent-orange-600 flex-shrink-0"
+                                />
+                                <span class="text-[10px] font-bold text-slate-700 dark:text-slate-200 truncate">${escapeHtml(flag.shortLabel)}</span>
+                              </label>
+                            `;
+                          }).join('')}
+                        </div>
+
+                        <div class="p-3 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2">
+                          <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="text-[10px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                              ${Icons.gift('w-3.5 h-3.5 text-orange-500')}
+                              <span>Conso gratuite individuelle</span>
+                            </span>
+                            <div class="flex flex-wrap items-center gap-1">
+                              <button type="button" data-quick-perk-user="${v.id}" data-quick-perk="none" class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] font-bold hover:bg-rose-500/20 cursor-pointer">Aucune</button>
+                              <button type="button" data-quick-perk-user="${v.id}" data-quick-perk="1-1" class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold hover:bg-slate-200 cursor-pointer">1 / séance</button>
+                              <button type="button" data-quick-perk-user="${v.id}" data-quick-perk="2-2" class="px-2 py-0.5 rounded bg-violet-500/10 text-violet-700 dark:text-violet-300 text-[10px] font-bold hover:bg-violet-500/20 cursor-pointer">2 (1 fois / 2)</button>
+                              <button type="button" data-quick-perk-user="${v.id}" data-quick-perk="4-1" class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold hover:bg-emerald-500/20 cursor-pointer">4 / séance</button>
+                            </div>
+                          </div>
+
+                          <select data-edit-perk-mode="${v.id}" class="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:border-orange-500">
+                            <option value="inherit" ${userPolicy.mode === 'inherit' ? 'selected' : ''}>Règle globale du foyer</option>
+                            <option value="none" ${userPolicy.mode === 'none' ? 'selected' : ''}>Aucune conso offerte (0)</option>
+                            <option value="custom" ${userPolicy.mode === 'custom' ? 'selected' : ''}>Personnalisée (quantité & fréquence)</option>
+                          </select>
+
+                          <div data-edit-perk-custom="${v.id}" class="${userPolicy.mode === 'custom' ? '' : 'hidden'} space-y-2 pt-1">
+                            <div class="grid grid-cols-2 gap-2">
+                              <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Nb consos</label>
+                                <input type="number" min="1" max="20" data-edit-perk-qty="${v.id}" value="${userPolicy.quantity || 1}" class="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-900 dark:text-white" />
+                              </div>
+                              <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Toutes les N séances</label>
+                                <input type="number" min="1" max="20" data-edit-perk-every="${v.id}" value="${userPolicy.everyNSessions || 1}" class="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-900 dark:text-white" />
+                              </div>
+                            </div>
+                            <label class="flex items-center gap-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                              <input type="checkbox" data-edit-perk-ignore="${v.id}" ${userPolicy.ignoreThreshold ? 'checked' : ''} class="w-3.5 h-3.5 rounded accent-orange-600 cursor-pointer" />
+                              <span>Ignorer le seuil de ventes/articles (dispo immédiatement)</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div class="flex items-center justify-end gap-2">
+                          <button type="submit" class="px-4 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-xs cursor-pointer">
+                            Enregistrer permissions & conso
+                          </button>
+                        </div>
+                      </form>
+                    ` : ''}
+
                   </div>
                 `;
               }).join('')}
@@ -1005,12 +718,14 @@ export class SettingsView {
         </div>
 
 
-        <!-- ==================== LIGNE 2 : CAISSE & OUTILS SYSTÈME ==================== -->
+      </div>
 
-        <!-- 2.1 Fond de Caisse & Décaisse Programmée (7 colonnes : espace optimal pour billets/pièces) -->
-        <div class="lg:col-span-7 flex flex-col">
-          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3.5 h-full flex flex-col justify-between">
-            <div class="space-y-3">
+      <!-- ==================== LIGNE 2 : CAISSE, MESSAGERIE & OPTIONS ==================== -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start pb-2">
+
+        <!-- 2.1 Colonne Gauche : Fond de Caisse + Messagerie (7 colonnes) -->
+        <div class="lg:col-span-7 flex flex-col gap-4">
+          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
                   ${Icons.coins('w-4 h-4 text-orange-500')}
@@ -1226,7 +941,71 @@ export class SettingsView {
 
                 </div>
               </form>
+          </div>
+
+          <!-- 2.1bis Carte Messagerie Instantanée & Salons Locaux -->
+          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                ${Icons.messageSquare('w-4 h-4 text-orange-500')}
+                <span>Messagerie & Salons Locaux</span>
+              </div>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                chatSettings.enabled
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                  : 'bg-slate-500/10 text-slate-500 border-slate-500/20'
+              }">
+                ${chatSettings.enabled ? 'Active' : 'Désactivée'}
+              </span>
             </div>
+
+            <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3">
+              <div>
+                <div class="text-xs font-bold text-slate-800 dark:text-slate-200">Activer le chat inter-postes</div>
+                <div class="text-[10px] text-slate-400">Salons décentralisés & messages privés signés</div>
+              </div>
+              <button 
+                type="button" 
+                id="btn-toggle-chat-enabled"
+                class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                  chatSettings.enabled ? 'bg-orange-600' : 'bg-slate-300 dark:bg-slate-700'
+                }"
+              >
+                <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out mt-0.5 ${
+                  chatSettings.enabled ? 'translate-x-5.5' : 'translate-x-0.5'
+                }"></span>
+              </button>
+            </div>
+
+            ${chatSettings.enabled ? `
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 space-y-1.5">
+                  <label for="select-chat-retention" class="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase">
+                    Rétention avant purge auto
+                  </label>
+                  <select 
+                    id="select-chat-retention"
+                    class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-white outline-none focus:border-orange-500 cursor-pointer"
+                  >
+                    <option value="15" ${chatSettings.retentionDays === 15 ? 'selected' : ''}>15 jours (Très léger)</option>
+                    <option value="30" ${chatSettings.retentionDays === 30 ? 'selected' : ''}>30 jours (1 mois - Recommandé)</option>
+                    <option value="70" ${chatSettings.retentionDays === 70 ? 'selected' : ''}>70 jours (1 trimestre scolaire)</option>
+                    <option value="180" ${chatSettings.retentionDays === 180 ? 'selected' : ''}>180 jours (6 mois)</option>
+                    <option value="0" ${chatSettings.retentionDays === 0 ? 'selected' : ''}>Illimitée (Conserver tous les messages)</option>
+                  </select>
+                </div>
+
+                <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex flex-col justify-center space-y-1">
+                  <div class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    ${Icons.shieldCheck('w-3.5 h-3.5 text-emerald-500 flex-shrink-0')}
+                    <span>Messages signés anti-usurpation</span>
+                  </div>
+                  <div class="text-[10px] font-mono text-slate-400 truncate">
+                    Salons : ${db.getChatChannels().map(c => '#' + c.name).join(', ')}
+                  </div>
+                </div>
+              </div>
+            ` : ''}
           </div>
         </div>
 
@@ -1348,28 +1127,7 @@ export class SettingsView {
             </form>
           </div>
 
-          <!-- 2.2.2 Carte Mise à Jour du Logiciel (Tauri Auto-Updater) -->
-          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3" id="card-software-update">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                ${Icons.refresh('w-4 h-4 text-orange-500')}
-                <span>Mise à Jour du Logiciel</span>
-              </div>
-              <span class="text-[11px] font-mono font-black px-2 py-0.5 rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-                v${escapeHtml(updater.getState().currentVersion)}
-              </span>
-            </div>
-
-            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              Vérification et application des mises à jour signées depuis GitHub.
-            </p>
-
-            <div id="updater-state-container" class="pt-0.5">
-              <!-- Rendu dynamique géré par renderUpdaterSection -->
-            </div>
-          </div>
-
-          <!-- 2.2.2bis Carte Soutien au Projet OpenMDL (Ko-fi) -->
+          <!-- 2.2.2 Carte Soutien au Projet OpenMDL (Ko-fi) -->
           <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3.5 relative overflow-hidden group">
             <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-orange-500/5 blur-xl pointer-events-none"></div>
             
@@ -1407,79 +1165,6 @@ export class SettingsView {
             `}
           </div>
 
-          <!-- 2.2.3 Carte Gestion des Données & Sauvegardes Binaires -->
-          <div class="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3.5">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                ${Icons.database('w-4 h-4 text-orange-500')}
-                <span>Données & Sauvegardes Binaires</span>
-              </div>
-              <span class="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[10px] font-black uppercase border border-orange-500/20">
-                Format .mdlb
-              </span>
-            </div>
-
-            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-              Exportez ou restaurez la caisse au format binaire optimisé OpenMDL (compression zlib, vérification CRC32 et protection contre la corruption).
-            </p>
-
-            <!-- Actions principales de sauvegarde binaire -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <button 
-                type="button" 
-                id="btn-export-backup-mdlb" 
-                class="py-2.5 px-3 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-md shadow-orange-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center"
-                title="Exporter une archive binaire .mdlb compressée"
-              >
-                ${Icons.download('w-3.5 h-3.5')}
-                <span>Exporter (.mdlb)</span>
-              </button>
-
-              <button 
-                type="button" 
-                id="btn-restore-backup-file" 
-                class="py-2.5 px-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center border border-slate-200 dark:border-slate-700"
-                title="Restaurer un fichier .mdlb ou .json"
-              >
-                ${Icons.upload('w-3.5 h-3.5')}
-                <span>Restaurer archive</span>
-              </button>
-              <input type="file" id="input-restore-backup-file" accept=".mdlb,.json" class="hidden" />
-            </div>
-
-            <!-- Actions secondaires : Historique & Démo / RAZ -->
-            <div class="pt-1 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
-              <button 
-                type="button" 
-                id="btn-show-backups-history" 
-                class="w-full py-2 px-3 rounded-2xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                ${Icons.clock('w-3.5 h-3.5 text-slate-400')}
-                <span>Historique des sauvegardes automatiques</span>
-              </button>
-
-              <div class="grid grid-cols-2 gap-2">
-                <button 
-                  type="button" 
-                  id="btn-clean-data" 
-                  class="py-1.5 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 border border-rose-200/80 dark:border-rose-900/40 text-rose-700 dark:text-rose-300 font-bold text-[11px] transition-all flex items-center justify-center gap-1 cursor-pointer text-center"
-                >
-                  ${Icons.trash('w-3 h-3')}
-                  <span>Remise à zéro</span>
-                </button>
-
-                <button 
-                  type="button" 
-                  id="btn-seed-demo" 
-                  class="py-1.5 px-2.5 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/30 dark:hover:bg-sky-950/50 border border-sky-200/80 dark:border-sky-900/40 text-sky-700 dark:text-sky-300 font-bold text-[11px] transition-all flex items-center justify-center gap-1 cursor-pointer text-center"
-                >
-                  ${Icons.trendingUp('w-3 h-3')}
-                  <span>Charger démo</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
           <!-- Mention discrète en bas de colonne droite -->
           <div class="text-center text-[10px] text-slate-400 dark:text-slate-500 py-0.5">
             OpenMDL v${escapeHtml(updater.getState().currentVersion)} • Logiciel Foyer & Vie Scolaire • <button type="button" data-action="goto-credits" class="underline hover:text-orange-500 cursor-pointer font-bold">Mentions & Crédits</button>
@@ -1498,55 +1183,10 @@ export class SettingsView {
       this.refresh(container);
     });
 
-    // Fermer le feedback synchronisation
-    container.querySelector('#btn-close-sync-feedback')?.addEventListener('click', () => {
-      this.syncFeedbackMessage = null;
-      this.refresh(container);
-    });
-
-    // Sélection du profil de poste (Foyer vs Vie Scolaire)
-    container.querySelectorAll('[data-app-profile]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const profile = (e.currentTarget as HTMLElement).getAttribute('data-app-profile') as any;
-        if (!profile) return;
-        db.setAppProfile(profile);
-        if (this.onSettingsChanged) {
-          this.onSettingsChanged();
-        } else {
-          this.refresh(container);
-        }
-      });
-    });
-
-    // Sélection du mode de synchronisation (Autonome, LAN, USB)
-    container.querySelectorAll('[data-sync-mode]').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const mode = (e.currentTarget as HTMLElement).getAttribute('data-sync-mode') as any;
-        if (!mode) return;
-        await syncService.saveConfig({ mode });
-        this.syncFeedbackMessage = null;
-        if (this.onSettingsChanged) {
-          this.onSettingsChanged();
-        } else {
-          this.refresh(container);
-        }
-      });
-    });
-
-    // Sélection du rôle LAN (Serveur vs Client)
-    container.querySelectorAll('[data-lan-role]').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const role = (e.currentTarget as HTMLElement).getAttribute('data-lan-role') as any;
-        if (!role) return;
-        const cfg = syncService.getConfig();
-        await syncService.saveConfig({ lan: { ...cfg.lan, role } });
-        this.syncFeedbackMessage = null;
-        if (this.onSettingsChanged) {
-          this.onSettingsChanged();
-        } else {
-          this.refresh(container);
-        }
-      });
+    // Raccourci vers l'onglet Système (autorisation canAccessSystem)
+    container.querySelector('#btn-goto-system')?.addEventListener('click', () => {
+      if (!db.hasPermission('canAccessSystem')) return;
+      this.onNavigate?.('system');
     });
 
     // Activation / Désactivation du Chat
@@ -1567,188 +1207,62 @@ export class SettingsView {
       this.refresh(container);
     });
 
-    // Vérification de l'intégrité de la base SQLite
-    container.querySelector('#btn-optimize-sqlite-db')?.addEventListener('click', () => {
-      const stats = {
-        products: db.getProducts().length,
-        sales: db.getSales().length,
-        sessions: db.getSessions().length,
-        volunteers: db.getVolunteers().length,
-        messages: db.getChatMessages('all').length
-      };
-
-      AppDialog.alert({
-        title: 'Intégrité SQLite Confirmée',
-        message: `La base de données locale SQLite embarquée est saine et intègre (PRAGMA integrity_check = OK).\n` +
-          `• Ventes enregistrées : ${stats.sales}\n` +
-          `• Produits au catalogue : ${stats.products}\n` +
-          `• Sessions de caisse : ${stats.sessions}\n` +
-          `• Bénévoles actifs : ${stats.volunteers}\n` +
-          `Le stockage est optimisé et synchronisé localement avec 0 dépendance externe.`,
-        type: 'success',
-        confirmText: 'Parfait'
-      });
-    });
-
-
-
-    // Actualiser l'IP locale détectée
-    container.querySelector('#btn-refresh-local-ip')?.addEventListener('click', async () => {
-      const ip = await syncService.getLocalIp();
-      syncService.cachedLocalIp = ip;
-      this.refresh(container);
-    });
-
-    // Copier l'URL du serveur LAN
-    container.querySelector('#btn-copy-server-url')?.addEventListener('click', () => {
-      const textEl = container.querySelector('#text-server-full-url');
-      if (textEl) {
-        const fullUrl = textEl.textContent?.trim() || '';
-        navigator.clipboard.writeText(fullUrl);
-        const btnText = container.querySelector('#btn-copy-server-text');
-        if (btnText) {
-          btnText.textContent = 'Copié !';
-          setTimeout(() => { if (btnText) btnText.textContent = 'Copier'; }, 2000);
+    // Synchronisation live rôle -> permissions par défaut dans le formulaire de création
+    const createRoleSelect = container.querySelector('#new-user-role') as HTMLSelectElement | null;
+    const createIsAdminCheck = container.querySelector('#new-user-is-admin') as HTMLInputElement | null;
+    const applyCreatePermPreset = (role: string, isAdminVal: boolean) => {
+      const preset = getDefaultPermissionsForRole(role, isAdminVal);
+      container.querySelectorAll('[data-create-perm]').forEach(el => {
+        const input = el as HTMLInputElement;
+        const key = input.getAttribute('data-create-perm') as keyof UserPermissions | null;
+        if (key && key in preset) {
+          input.checked = !!preset[key];
         }
-      }
-    });
-
-    // Démarrer / Arrêter le serveur LAN
-    container.querySelector('#btn-toggle-lan-server')?.addEventListener('click', async () => {
-      const portInput = container.querySelector('#input-lan-server-port') as HTMLInputElement;
-      const pinInput = container.querySelector('#input-lan-server-pin') as HTMLInputElement;
-      const port = parseInt(portInput?.value || '4123', 10) || 4123;
-      const pin = pinInput?.value?.trim() || '';
-
-      const cfg = syncService.getConfig();
-      await syncService.saveConfig({
-        lan: { ...cfg.lan, port, pin }
       });
-
-      const isRunning = !!syncService.cachedServerStatus?.running;
-      if (isRunning) {
-        await syncService.stopLanServer();
-        this.syncFeedbackMessage = { text: 'Serveur LAN arrêté avec succès.', type: 'info' };
-      } else {
-        const res = await syncService.startLanServer();
-        if (res) {
-          this.syncFeedbackMessage = { text: `Serveur LAN démarré sur http://${res.ip}:${res.port}`, type: 'success' };
-        } else {
-          this.syncFeedbackMessage = { text: 'Erreur lors du démarrage du serveur LAN.', type: 'error' };
-        }
-      }
-      this.refresh(container);
-    });
-
-    const saveServerInputs = () => {
-      const portInput = container.querySelector('#input-lan-server-port') as HTMLInputElement;
-      const pinInput = container.querySelector('#input-lan-server-pin') as HTMLInputElement;
-      if (portInput || pinInput) {
-        const port = parseInt(portInput?.value || '4123', 10) || 4123;
-        const pin = pinInput?.value?.trim() || '';
-        const cfg = syncService.getConfig();
-        syncService.saveConfig({ lan: { ...cfg.lan, port, pin } });
-      }
     };
-    container.querySelector('#input-lan-server-port')?.addEventListener('change', saveServerInputs);
-    container.querySelector('#input-lan-server-pin')?.addEventListener('change', saveServerInputs);
 
-    // Tester la connexion du client LAN
-    container.querySelector('#btn-test-lan-client')?.addEventListener('click', async () => {
-      const urlInput = container.querySelector('#input-lan-client-url') as HTMLInputElement;
-      const pinInput = container.querySelector('#input-lan-client-pin') as HTMLInputElement;
-      const url = urlInput?.value?.trim() || '';
-      const pin = pinInput?.value?.trim() || '';
-
-      const cfg = syncService.getConfig();
-      await syncService.saveConfig({ lan: { ...cfg.lan, serverUrl: url, pin } });
-
-      const res = await syncService.testLanConnection(url, pin);
-      this.syncFeedbackMessage = {
-        text: res.message,
-        type: res.success ? 'success' : 'error'
-      };
-      this.refresh(container);
-    });
-
-    // Synchroniser immédiatement depuis le client LAN
-    container.querySelector('#btn-sync-lan-now')?.addEventListener('click', async () => {
-      const urlInput = container.querySelector('#input-lan-client-url') as HTMLInputElement;
-      const pinInput = container.querySelector('#input-lan-client-pin') as HTMLInputElement;
-      const url = urlInput?.value?.trim() || '';
-      const pin = pinInput?.value?.trim() || '';
-
-      const cfg = syncService.getConfig();
-      await syncService.saveConfig({ lan: { ...cfg.lan, serverUrl: url, pin } });
-
-      const res = await syncService.syncFromLanServer();
-      this.syncFeedbackMessage = {
-        text: res.message,
-        type: res.success ? 'success' : 'error'
-      };
-      this.refresh(container);
-    });
-
-    // Changement intervalle auto-sync client
-    container.querySelector('#select-lan-auto-sync')?.addEventListener('change', async (e) => {
-      const val = parseInt((e.target as HTMLSelectElement).value, 10) || 0;
-      const cfg = syncService.getConfig();
-      await syncService.saveConfig({ lan: { ...cfg.lan, autoSyncInterval: val } });
-    });
-
-    // Clé USB : mise à jour du chemin
-    container.querySelector('#input-usb-filepath')?.addEventListener('change', async (e) => {
-      const val = (e.target as HTMLInputElement).value.trim();
-      const cfg = syncService.getConfig();
-      await syncService.saveConfig({ usb: { ...cfg.usb, filePath: val } });
-    });
-
-    // Clé USB : case export auto lors de la clôture
-    container.querySelector('#check-usb-auto-close')?.addEventListener('change', async (e) => {
-      const checked = (e.target as HTMLInputElement).checked;
-      const cfg = syncService.getConfig();
-      await syncService.saveConfig({ usb: { ...cfg.usb, autoSyncOnClose: checked } });
-    });
-
-    // Clé USB : export manuel
-    container.querySelector('#btn-export-usb')?.addEventListener('click', async () => {
-      const pathInput = container.querySelector('#input-usb-filepath') as HTMLInputElement;
-      const path = pathInput?.value?.trim() || '';
-      if (!path) {
-        this.syncFeedbackMessage = { text: 'Veuillez saisir un chemin de fichier pour la clé USB.', type: 'error' };
-        this.refresh(container);
-        return;
+    createRoleSelect?.addEventListener('change', () => {
+      const roleVal = createRoleSelect.value;
+      const shouldBeAdmin = roleVal.toLowerCase().includes('admin');
+      if (createIsAdminCheck) {
+        createIsAdminCheck.checked = shouldBeAdmin;
       }
-      const cfg = syncService.getConfig();
-      await syncService.saveConfig({ usb: { ...cfg.usb, filePath: path } });
-      const res = await syncService.exportToUsbFile(path);
-      this.syncFeedbackMessage = { text: res.message, type: res.success ? 'success' : 'error' };
-      this.refresh(container);
+      applyCreatePermPreset(roleVal, shouldBeAdmin);
     });
 
-    // Clé USB : import manuel
-    container.querySelector('#btn-import-usb')?.addEventListener('click', async () => {
-      const pathInput = container.querySelector('#input-usb-filepath') as HTMLInputElement;
-      const path = pathInput?.value?.trim() || '';
-      if (!path) {
-        this.syncFeedbackMessage = { text: 'Veuillez saisir un chemin de fichier pour la clé USB.', type: 'error' };
-        this.refresh(container);
-        return;
-      }
-      AppDialog.confirm({
-        title: 'Importer depuis la clé USB',
-        message: 'Attention : Importer les données depuis la clé USB va écraser les données locales par celles du fichier. Confirmez-vous le rechargement ?',
-        type: 'warning',
-        confirmText: 'Importer & Écraser',
-        cancelText: 'Annuler',
-        onConfirm: async () => {
-          const cfg = syncService.getConfig();
-          await syncService.saveConfig({ usb: { ...cfg.usb, filePath: path } });
-          const res = await syncService.importFromUsbFile(path);
-          this.syncFeedbackMessage = { text: res.message, type: res.success ? 'success' : 'error' };
-          this.refresh(container);
+    createIsAdminCheck?.addEventListener('change', () => {
+      applyCreatePermPreset(createRoleSelect?.value || '', createIsAdminCheck.checked);
+    });
+
+    container.querySelectorAll('[data-create-perm]').forEach(el => {
+      el.addEventListener('change', () => {
+        const input = el as HTMLInputElement;
+        const key = input.getAttribute('data-create-perm') as keyof UserPermissions | null;
+        if (key === 'canVisaDecaisse' && input.checked) {
+          const viewEl = container.querySelector('[data-create-perm="canViewDecaisse"]') as HTMLInputElement | null;
+          if (viewEl) viewEl.checked = true;
+        } else if (key === 'canViewDecaisse' && !input.checked) {
+          const visaEl = container.querySelector('[data-create-perm="canVisaDecaisse"]') as HTMLInputElement | null;
+          if (visaEl) visaEl.checked = false;
+        } else if (key === 'canEditCatalog' && input.checked) {
+          const catEl = container.querySelector('[data-create-perm="canViewCatalog"]') as HTMLInputElement | null;
+          if (catEl) catEl.checked = true;
+        } else if (key === 'canViewCatalog' && !input.checked) {
+          const editCatEl = container.querySelector('[data-create-perm="canEditCatalog"]') as HTMLInputElement | null;
+          if (editCatEl) editCatEl.checked = false;
         }
       });
+    });
+
+    const createPerkModeSelect = container.querySelector('#new-user-perk-mode') as HTMLSelectElement | null;
+    const createPerkCustomFields = container.querySelector('#new-user-perk-custom-fields') as HTMLElement | null;
+    createPerkModeSelect?.addEventListener('change', () => {
+      if (!createPerkCustomFields) return;
+      if (createPerkModeSelect.value === 'custom') {
+        createPerkCustomFields.classList.remove('hidden');
+      } else {
+        createPerkCustomFields.classList.add('hidden');
+      }
     });
 
     // Formulaire de création de compte
@@ -1763,12 +1277,34 @@ export class SettingsView {
 
       if (!nameInput || !usernameInput || !passwordInput || !roleSelect) return;
 
+      const permissions: Partial<UserPermissions> = {};
+      container.querySelectorAll('[data-create-perm]').forEach(el => {
+        const input = el as HTMLInputElement;
+        const key = input.getAttribute('data-create-perm') as keyof UserPermissions | null;
+        if (key) {
+          permissions[key] = input.checked;
+        }
+      });
+
+      const perkMode = (createPerkModeSelect?.value || 'inherit') as VolunteerPerkMode;
+      const qtyVal = parseInt((container.querySelector('#new-user-perk-qty') as HTMLInputElement | null)?.value || '1', 10) || 1;
+      const everyVal = parseInt((container.querySelector('#new-user-perk-every') as HTMLInputElement | null)?.value || '1', 10) || 1;
+      const ignoreThreshold = !!(container.querySelector('#new-user-perk-ignore-threshold') as HTMLInputElement | null)?.checked;
+      const perkPolicy: VolunteerPerkPolicy = {
+        mode: perkMode,
+        quantity: Math.max(1, qtyVal),
+        everyNSessions: Math.max(1, everyVal),
+        ignoreThreshold
+      };
+
       const res = db.createUser({
         name: nameInput.value,
         username: usernameInput.value,
         password: passwordInput.value,
         role: roleSelect.value,
-        isAdmin: isAdminCheck ? isAdminCheck.checked : false
+        isAdmin: isAdminCheck ? isAdminCheck.checked : false,
+        permissions,
+        perkPolicy
       });
 
       this.feedbackMessage = {
@@ -1778,8 +1314,174 @@ export class SettingsView {
 
       if (res.success) {
         formCreate.reset();
+        applyCreatePermPreset('Bénévole Permanence', false);
+        createPerkCustomFields?.classList.add('hidden');
       }
       this.refresh(container);
+    });
+
+    // Toggle édition Permissions & Conso par utilisateur
+    container.querySelectorAll('[data-toggle-perms-edit]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = (e.currentTarget as HTMLElement).getAttribute('data-toggle-perms-edit');
+        if (!id) return;
+        this.editingPermissionsUserId = this.editingPermissionsUserId === id ? null : id;
+        this.refresh(container);
+      });
+    });
+
+    // Presets rapides dans l'éditeur inline d'un utilisateur
+    container.querySelectorAll('[data-preset-user]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const el = e.currentTarget as HTMLElement;
+        const userId = el.getAttribute('data-preset-user');
+        const presetRole = el.getAttribute('data-preset-role') || '';
+        const presetAdmin = el.getAttribute('data-preset-is-admin') === '1';
+        if (!userId) return;
+
+        const roleSel = container.querySelector(`[data-edit-role="${userId}"]`) as HTMLSelectElement | null;
+        if (roleSel && Array.from(roleSel.options).some(o => o.value === presetRole)) {
+          roleSel.value = presetRole;
+        }
+        const adminCb = container.querySelector(`[data-edit-is-admin="${userId}"]`) as HTMLInputElement | null;
+        if (adminCb && !adminCb.disabled) {
+          adminCb.checked = presetAdmin;
+        }
+        const preset = getDefaultPermissionsForRole(presetRole, adminCb ? adminCb.checked : presetAdmin);
+        container.querySelectorAll(`[data-edit-perm-user="${userId}"]`).forEach(cb => {
+          const inp = cb as HTMLInputElement;
+          const key = inp.getAttribute('data-edit-perm-key') as keyof UserPermissions | null;
+          if (key && !inp.disabled) {
+            inp.checked = !!preset[key];
+          }
+        });
+      });
+    });
+
+    // Rôle / IsAdmin / cohérence dans l'éditeur inline
+    container.querySelectorAll('[data-edit-is-admin]').forEach(el => {
+      el.addEventListener('change', () => {
+        const inp = el as HTMLInputElement;
+        const userId = inp.getAttribute('data-edit-is-admin');
+        if (!userId) return;
+        const roleSel = container.querySelector(`[data-edit-role="${userId}"]`) as HTMLSelectElement | null;
+        const preset = getDefaultPermissionsForRole(roleSel?.value || '', inp.checked);
+        container.querySelectorAll(`[data-edit-perm-user="${userId}"]`).forEach(cb => {
+          const permInp = cb as HTMLInputElement;
+          const key = permInp.getAttribute('data-edit-perm-key') as keyof UserPermissions | null;
+          if (key && !permInp.disabled) {
+            permInp.checked = !!preset[key];
+          }
+        });
+      });
+    });
+
+    container.querySelectorAll('[data-edit-perm]').forEach(el => {
+      el.addEventListener('change', () => {
+        const inp = el as HTMLInputElement;
+        const userId = inp.getAttribute('data-edit-perm-user');
+        const key = inp.getAttribute('data-edit-perm-key') as keyof UserPermissions | null;
+        if (!userId || !key) return;
+        if (key === 'canVisaDecaisse' && inp.checked) {
+          const viewEl = container.querySelector(`[data-edit-perm="${userId}:canViewDecaisse"]`) as HTMLInputElement | null;
+          if (viewEl && !viewEl.disabled) viewEl.checked = true;
+        } else if (key === 'canViewDecaisse' && !inp.checked) {
+          const visaEl = container.querySelector(`[data-edit-perm="${userId}:canVisaDecaisse"]`) as HTMLInputElement | null;
+          if (visaEl && !visaEl.disabled) visaEl.checked = false;
+        } else if (key === 'canEditCatalog' && inp.checked) {
+          const catEl = container.querySelector(`[data-edit-perm="${userId}:canViewCatalog"]`) as HTMLInputElement | null;
+          if (catEl && !catEl.disabled) catEl.checked = true;
+        } else if (key === 'canViewCatalog' && !inp.checked) {
+          const editCatEl = container.querySelector(`[data-edit-perm="${userId}:canEditCatalog"]`) as HTMLInputElement | null;
+          if (editCatEl && !editCatEl.disabled) editCatEl.checked = false;
+        }
+      });
+    });
+
+    // Toggle panneau perso conso & raccourcis rapides dans l'éditeur inline
+    container.querySelectorAll('[data-edit-perk-mode]').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const select = sel as HTMLSelectElement;
+        const userId = select.getAttribute('data-edit-perk-mode');
+        if (!userId) return;
+        const customPanel = container.querySelector(`[data-edit-perk-custom="${userId}"]`) as HTMLElement | null;
+        if (customPanel) {
+          customPanel.classList.toggle('hidden', select.value !== 'custom');
+        }
+      });
+    });
+
+    container.querySelectorAll('[data-quick-perk-user]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const el = e.currentTarget as HTMLElement;
+        const userId = el.getAttribute('data-quick-perk-user');
+        const quick = el.getAttribute('data-quick-perk');
+        if (!userId || !quick) return;
+
+        const modeSel = container.querySelector(`[data-edit-perk-mode="${userId}"]`) as HTMLSelectElement | null;
+        const customPanel = container.querySelector(`[data-edit-perk-custom="${userId}"]`) as HTMLElement | null;
+        const qtyInput = container.querySelector(`[data-edit-perk-qty="${userId}"]`) as HTMLInputElement | null;
+        const everyInput = container.querySelector(`[data-edit-perk-every="${userId}"]`) as HTMLInputElement | null;
+
+        if (quick === 'none') {
+          if (modeSel) modeSel.value = 'none';
+          customPanel?.classList.add('hidden');
+        } else {
+          const [q, ev] = quick.split('-');
+          if (modeSel) modeSel.value = 'custom';
+          customPanel?.classList.remove('hidden');
+          if (qtyInput) qtyInput.value = q;
+          if (everyInput) everyInput.value = ev;
+        }
+      });
+    });
+
+    // Soumission éditeur inline Permissions & Conso
+    container.querySelectorAll('[data-form-edit-perms]').forEach(form => {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const id = (e.currentTarget as HTMLElement).getAttribute('data-form-edit-perms');
+        if (!id) return;
+
+        const roleSel = container.querySelector(`[data-edit-role="${id}"]`) as HTMLSelectElement | null;
+        const adminCb = container.querySelector(`[data-edit-is-admin="${id}"]`) as HTMLInputElement | null;
+        const modeSel = container.querySelector(`[data-edit-perk-mode="${id}"]`) as HTMLSelectElement | null;
+        const qtyInput = container.querySelector(`[data-edit-perk-qty="${id}"]`) as HTMLInputElement | null;
+        const everyInput = container.querySelector(`[data-edit-perk-every="${id}"]`) as HTMLInputElement | null;
+        const ignoreCb = container.querySelector(`[data-edit-perk-ignore="${id}"]`) as HTMLInputElement | null;
+
+        const permissions: Partial<UserPermissions> = {};
+        container.querySelectorAll(`[data-edit-perm-user="${id}"]`).forEach(cb => {
+          const inp = cb as HTMLInputElement;
+          const key = inp.getAttribute('data-edit-perm-key') as keyof UserPermissions | null;
+          if (key) {
+            permissions[key] = inp.checked;
+          }
+        });
+
+        const perkPolicy: VolunteerPerkPolicy = {
+          mode: (modeSel?.value || 'inherit') as VolunteerPerkMode,
+          quantity: Math.max(1, parseInt(qtyInput?.value || '1', 10) || 1),
+          everyNSessions: Math.max(1, parseInt(everyInput?.value || '1', 10) || 1),
+          ignoreThreshold: !!ignoreCb?.checked
+        };
+
+        const res = db.updateUserPermissionsAndPerk(id, {
+          role: roleSel?.value,
+          isAdmin: adminCb ? adminCb.checked : undefined,
+          permissions,
+          perkPolicy
+        });
+
+        this.feedbackMessage = {
+          text: res.message,
+          type: res.success ? 'success' : 'error'
+        };
+        if (res.success) {
+          this.editingPermissionsUserId = null;
+        }
+        this.refresh(container);
+      });
     });
 
     // Boutons Suspendre / Réactiver
@@ -1891,243 +1593,6 @@ export class SettingsView {
         };
         this.editingNameUserId = null;
         this.refresh(container);
-      });
-    });
-
-    // Exporter une archive binaire (.mdlb)
-    container.querySelector('#btn-export-backup-mdlb')?.addEventListener('click', async () => {
-      try {
-        const data = db.exportData();
-        const binaryBytes = await packBackupBinary(data);
-        const dateStr = new Date().toISOString().slice(0, 10);
-        const fileName = `openmdl_backup_${dateStr}.mdlb`;
-        triggerFileDownload(binaryBytes, fileName, 'application/octet-stream');
-        this.feedbackMessage = {
-          text: `Archive binaire créée avec succès : ${fileName} (${binaryBytes.length} octets, compressée et vérifiée CRC32)`,
-          type: 'success'
-        };
-        this.refresh(container);
-      } catch (err: any) {
-        console.error(err);
-        this.feedbackMessage = {
-          text: 'Erreur lors de l\'export binaire : ' + (err.message || String(err)),
-          type: 'error'
-        };
-        this.refresh(container);
-      }
-    });
-
-    // Restaurer une archive (.mdlb ou .json)
-    const restoreFileInput = container.querySelector('#input-restore-backup-file') as HTMLInputElement;
-    container.querySelector('#btn-restore-backup-file')?.addEventListener('click', () => {
-      restoreFileInput?.click();
-    });
-
-    restoreFileInput?.addEventListener('change', async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-
-      try {
-        const buffer = await file.arrayBuffer();
-        const data = await unpackBackupBinary(buffer);
-
-        if (!data || typeof data !== 'object' || !Array.isArray(data.products)) {
-          throw new Error('Le fichier de sauvegarde est invalide ou corrompu.');
-        }
-
-        const isMdlb = file.name.endsWith('.mdlb');
-        AppDialog.confirm({
-          title: 'Restaurer la sauvegarde',
-          message: `Voulez-vous restaurer l'archive "${file.name}" (${isMdlb ? 'Format binaire .mdlb' : 'Format JSON'}) ?\n\nContenu détecté :\n- ${data.products?.length || 0} produit(s)\n- ${data.sales?.length || 0} vente(s)\n- ${data.sessions?.length || 0} séance(s)\n- ${data.volunteers?.length || 0} utilisateur(s)\n\nAttention : cette action va écraser les données actuelles.`,
-          type: 'warning',
-          confirmText: 'Restaurer & Écraser',
-          cancelText: 'Annuler',
-          onConfirm: () => {
-            db.importData(data);
-            this.feedbackMessage = {
-              text: `Sauvegarde "${file.name}" restaurée avec succès !`,
-              type: 'success'
-            };
-            this.refresh(container);
-          }
-        });
-      } catch (err: any) {
-        console.error(err);
-        AppDialog.alert({
-          title: 'Erreur de restauration',
-          message: 'Impossible de restaurer le fichier : ' + (err.message || String(err)),
-          type: 'error'
-        });
-      } finally {
-        restoreFileInput.value = '';
-      }
-    });
-
-    // Afficher l'historique des sauvegardes automatiques
-    container.querySelector('#btn-show-backups-history')?.addEventListener('click', async () => {
-      const diskBackups = await listDiskBackups();
-      const localBackups = db.getBackupsList();
-
-      const modalContent = document.createElement('div');
-      modalContent.className = 'space-y-4';
-
-      if (diskBackups.length === 0 && localBackups.length === 0) {
-        modalContent.innerHTML = `
-          <div class="p-8 text-center text-slate-400">
-            <p class="font-bold">Aucune sauvegarde enregistrée pour le moment.</p>
-            <p class="text-xs mt-1">Des sauvegardes sont générées automatiquement lors de la clôture des séances.</p>
-          </div>
-        `;
-      } else {
-        const combined = [
-          ...diskBackups.map(b => ({
-            name: b.fileName,
-            path: b.path,
-            size: b.sizeBytes,
-            isBinary: b.isBinary,
-            date: new Date(b.modifiedSecs * 1000).toLocaleString('fr-FR'),
-            isDisk: true
-          })),
-          ...localBackups
-            .filter(lb => !diskBackups.some(db => db.fileName === lb.fileName))
-            .map(lb => ({
-              name: lb.fileName,
-              path: '',
-              size: (lb as any).size || 0,
-              isBinary: lb.fileName.endsWith('.mdlb'),
-              date: new Date(lb.date).toLocaleString('fr-FR'),
-              isDisk: false
-            }))
-        ];
-
-        modalContent.innerHTML = `
-          <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Liste des sauvegardes générées par OpenMDL. Vous pouvez restaurer ou inspecter n'importe quel point de sauvegarde.
-          </p>
-          <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-            ${combined.map((b, idx) => `
-              <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3">
-                <div class="space-y-1 truncate">
-                  <div class="flex items-center gap-2">
-                    <span class="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 truncate">${escapeHtml(b.name)}</span>
-                    <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${b.isBinary ? 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/20' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}">
-                      ${b.isBinary ? '.MDLB Binaire' : 'JSON'}
-                    </span>
-                  </div>
-                  <div class="text-[10px] text-slate-400 flex items-center gap-2">
-                    <span>${b.date}</span>
-                    <span>•</span>
-                    <span>${(b.size / 1024).toFixed(1)} Ko</span>
-                    ${b.isDisk ? '<span class="text-emerald-500 font-bold">• Sur disque</span>' : ''}
-                  </div>
-                </div>
-
-                <button 
-                  type="button" 
-                  data-restore-index="${idx}" 
-                  class="btn-restore-history-item px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs transition-colors flex items-center gap-1 cursor-pointer flex-shrink-0"
-                >
-                  ${Icons.refresh('w-3 h-3')}
-                  <span>Restaurer</span>
-                </button>
-              </div>
-            `).join('')}
-          </div>
-        `;
-
-        const closeModal = AppDialog.custom({
-          title: 'Historique des Sauvegardes OpenMDL',
-          content: modalContent,
-          size: 'lg'
-        });
-
-        modalContent.querySelectorAll('.btn-restore-history-item').forEach(btn => {
-          btn.addEventListener('click', async (e) => {
-            const index = parseInt((e.currentTarget as HTMLElement).getAttribute('data-restore-index') || '-1', 10);
-            const target = combined[index];
-            if (!target) return;
-
-            AppDialog.confirm({
-              title: 'Restaurer ce point de sauvegarde',
-              message: `Voulez-vous restaurer les données depuis "${target.name}" (${target.date}) ?\nLes données actuelles seront remplacées.`,
-              type: 'warning',
-              confirmText: 'Confirmer la restauration',
-              cancelText: 'Annuler',
-              onConfirm: async () => {
-                try {
-                  let data: any = null;
-                  if (target.isDisk && target.path) {
-                    data = await readBackupFromDisk(target.path);
-                  } else {
-                    const raw = localStorage.getItem('backup_data_' + target.name);
-                    if (!raw) throw new Error('Données introuvables en cache local.');
-                    data = await unpackBackupBinary(raw);
-                  }
-
-                  db.importData(data);
-                  closeModal();
-                  this.feedbackMessage = {
-                    text: `Sauvegarde "${target.name}" restaurée avec succès !`,
-                    type: 'success'
-                  };
-                  this.refresh(container);
-                } catch (err: any) {
-                  console.error(err);
-                  AppDialog.alert({
-                    title: 'Erreur',
-                    message: 'Échec de lecture de la sauvegarde : ' + (err.message || String(err)),
-                    type: 'error'
-                  });
-                }
-              }
-            });
-          });
-        });
-        return;
-      }
-
-      AppDialog.custom({
-        title: 'Historique des Sauvegardes OpenMDL',
-        content: modalContent,
-        size: 'md'
-      });
-    });
-
-    // Bouton Remise à zéro propre (App 100% vierge)
-    container.querySelector('#btn-clean-data')?.addEventListener('click', () => {
-      AppDialog.confirm({
-        title: 'Remise à zéro complète',
-        message: 'Voulez-vous remettre l\'application complètement à zéro ? Le catalogue, les ventes, les sessions et TOUS les utilisateurs seront effacés pour ne conserver que l\'unique compte (admin / admin).',
-        type: 'danger',
-        confirmText: 'Effacer tout & Réinitialiser',
-        cancelText: 'Annuler',
-        onConfirm: () => {
-          db.clearAllTestData(true, true);
-          this.feedbackMessage = {
-            text: 'Application 100% vierge ! Catalogue vide et unique compte actif : admin / admin.',
-            type: 'success'
-          };
-          this.refresh(container);
-        }
-      });
-    });
-
-    // Bouton Chargement Démo (pour screenshots et présentations)
-    container.querySelector('#btn-seed-demo')?.addEventListener('click', () => {
-      AppDialog.confirm({
-        title: 'Charger les données démo',
-        message: 'Charger les données de démonstration complètes (ventes sur plusieurs mois, statistiques et graphiques pour captures d\'écran) ?',
-        type: 'warning',
-        confirmText: 'Charger la démo',
-        cancelText: 'Annuler',
-        onConfirm: () => {
-          db.seedDemoData();
-          this.feedbackMessage = {
-            text: 'Données de démonstration chargées avec succès ! Les graphiques et bilans sont remplis.',
-            type: 'success'
-          };
-          this.refresh(container);
-        }
       });
     });
 
@@ -2468,17 +1933,9 @@ export class SettingsView {
       this.refresh(container);
     });
 
-    // Gestion de la section Mise à jour logicielle (Tauri Auto-Updater)
-    const cardSoftwareUpdate = container.querySelector('#card-software-update') as HTMLElement;
-    if (cardSoftwareUpdate) {
-      updater.subscribe((state) => {
-        this.renderUpdaterSection(cardSoftwareUpdate, state);
-      });
-    }
-
     container.querySelectorAll('#btn-goto-credits, [data-action="goto-credits"]').forEach(btn => {
       btn.addEventListener('click', () => {
-        (window as any).OpenMDL?.navigation.goTo('credits');
+        this.onNavigate?.('credits');
       });
     });
 
@@ -2488,158 +1945,13 @@ export class SettingsView {
     });
   }
 
-  private renderUpdaterSection(cardContainer: HTMLElement, state: UpdateState): void {
-    const container = cardContainer.querySelector('#updater-state-container');
-    if (!container) return;
-
-    if (state.status === 'idle') {
-      container.innerHTML = `
-        <button 
-          type="button" 
-          id="btn-check-update"
-          class="w-full py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-500 active:scale-[0.98] text-white font-extrabold text-xs tracking-wide shadow-md shadow-orange-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
-        >
-          ${Icons.refresh('w-4 h-4')}
-          <span>Rechercher une mise à jour</span>
-        </button>
-      `;
-    } else if (state.status === 'checking') {
-      container.innerHTML = `
-        <div class="py-3 px-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2.5 text-xs font-bold text-slate-600 dark:text-slate-300">
-          <span class="animate-spin text-orange-500 inline-block">${Icons.refresh('w-4 h-4')}</span>
-          <span>Recherche des versions sur GitHub...</span>
-        </div>
-      `;
-    } else if (state.status === 'up-to-date') {
-      container.innerHTML = `
-        <div class="space-y-2.5 animate-enter">
-          <div class="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2.5">
-            ${Icons.check('w-4 h-4 flex-shrink-0')}
-            <span>OpenMDL est à jour (v${escapeHtml(state.currentVersion)})</span>
-          </div>
-          <button 
-            type="button" 
-            id="btn-check-update"
-            class="w-full py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-          >
-            ${Icons.refresh('w-3.5 h-3.5')}
-            <span>Revérifier</span>
-          </button>
-        </div>
-      `;
-    } else if (state.status === 'available') {
-      container.innerHTML = `
-        <div class="space-y-3 p-4 rounded-2xl bg-orange-500/10 border border-orange-500/30 animate-enter">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-extrabold text-orange-600 dark:text-orange-400">
-              Nouvelle version disponible !
-            </span>
-            <span class="font-mono font-black text-xs px-2 py-0.5 rounded-md bg-orange-500 text-white shadow-xs">
-              v${escapeHtml(state.availableVersion || '')}
-            </span>
-          </div>
-          ${state.releaseNotes ? `
-            <p class="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-3 bg-white/70 dark:bg-slate-900/70 p-2.5 rounded-xl border border-orange-500/20 font-sans leading-relaxed">
-              ${escapeHtml(state.releaseNotes)}
-            </p>
-          ` : ''}
-          <button 
-            type="button" 
-            id="btn-download-update"
-            class="w-full py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-500 active:scale-[0.98] text-white font-extrabold text-xs shadow-md shadow-orange-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
-          >
-            ${Icons.download('w-4 h-4')}
-            <span>Télécharger et installer la mise à jour</span>
-          </button>
-        </div>
-      `;
-    } else if (state.status === 'downloading') {
-      const mbDownloaded = (state.downloadedBytes / (1024 * 1024)).toFixed(1);
-      const mbTotal = state.totalBytes > 0 ? (state.totalBytes / (1024 * 1024)).toFixed(1) : '?';
-      container.innerHTML = `
-        <div class="space-y-2.5 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 animate-enter">
-          <div class="flex items-center justify-between text-xs font-extrabold text-slate-800 dark:text-slate-200">
-            <div class="flex items-center gap-2">
-              <span class="animate-spin text-orange-500 inline-block">${Icons.refresh('w-3.5 h-3.5')}</span>
-              <span>Téléchargement en cours...</span>
-            </div>
-            <span class="font-mono text-orange-600 dark:text-orange-400 font-black">${state.progressPercent}%</span>
-          </div>
-
-          <!-- Barre de progression stylisée -->
-          <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative shadow-inner">
-            <div 
-              class="h-full bg-gradient-to-r from-orange-500 to-amber-500 rounded-full transition-all duration-300 ease-out relative overflow-hidden" 
-              style="width: ${state.progressPercent}%;"
-            >
-              <div class="absolute inset-0 bg-white/20 animate-pulse"></div>
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>${mbDownloaded} Mo / ${mbTotal} Mo</span>
-            <span>Vérification cryptographique...</span>
-          </div>
-        </div>
-      `;
-    } else if (state.status === 'ready-to-restart') {
-      container.innerHTML = `
-        <div class="space-y-3 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 animate-enter">
-          <div class="flex items-center gap-2 text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
-            ${Icons.check('w-4 h-4')}
-            <span>Mise à jour installée avec succès !</span>
-          </div>
-          <p class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-            Redémarrez l'application pour appliquer immédiatement la nouvelle version.
-          </p>
-          <button 
-            type="button" 
-            id="btn-restart-app"
-            class="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-extrabold text-xs shadow-md shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
-          >
-            ${Icons.refresh('w-4 h-4')}
-            <span>Redémarrer l'application maintenant</span>
-          </button>
-        </div>
-      `;
-    } else if (state.status === 'error') {
-      container.innerHTML = `
-        <div class="space-y-2.5 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/25 animate-enter">
-          <div class="flex items-center gap-2 text-xs font-bold text-rose-600 dark:text-rose-400">
-            ${Icons.alertTriangle('w-4 h-4 flex-shrink-0')}
-            <span>${escapeHtml(state.errorMessage || 'Erreur lors de la recherche de mise à jour.')}</span>
-          </div>
-          <button 
-            type="button" 
-            id="btn-check-update"
-            class="w-full py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs shadow-rose-600/20"
-          >
-            ${Icons.refresh('w-3.5 h-3.5')}
-            <span>Réessayer</span>
-          </button>
-        </div>
-      `;
-    }
-
-    // Attacher les écouteurs de la section mise à jour
-    container.querySelector('#btn-check-update')?.addEventListener('click', () => {
-      updater.checkForUpdates();
-    });
-
-    container.querySelector('#btn-download-update')?.addEventListener('click', () => {
-      updater.downloadAndApply();
-    });
-
-    container.querySelector('#btn-restart-app')?.addEventListener('click', () => {
-      updater.restartApp();
-    });
-  }
-
   private refresh(container: HTMLElement): void {
     const parent = container.parentElement;
     if (parent) {
+      const prevScroll = container.scrollTop;
       const newEl = this.render();
       parent.replaceChild(newEl, container);
+      newEl.scrollTop = prevScroll;
     }
   }
 }

@@ -25,7 +25,7 @@ export class RestockView {
 
     const products = db.getProducts();
     const restocks = db.getRestocks();
-    const isAdmin = db.getCurrentVolunteer()?.isAdmin === true;
+    const isAdmin = db.hasPermission('canRestock');
 
     if (!this.selectedProductId && products.length > 0) {
       this.selectedProductId = products[0].id;
@@ -279,7 +279,7 @@ export class RestockView {
     }
 
     leftIsland.querySelector('#btn-submit-restock')?.addEventListener('click', () => {
-      if (!db.getCurrentVolunteer()?.isAdmin) return;
+      if (!db.hasPermission('canRestock')) return;
       if (!selectedProduct) return;
       const newPrice = parseFloat((leftIsland.querySelector('#restock-new-price') as HTMLInputElement)?.value) || undefined;
       const newCost = parseFloat((leftIsland.querySelector('#restock-new-cost') as HTMLInputElement)?.value) || undefined;

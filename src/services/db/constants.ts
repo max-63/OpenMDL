@@ -87,8 +87,21 @@ export const STORAGE_KEYS = {
 
 export const DEFAULT_DATABASE_CONFIG: DatabaseConnectionConfig = {
   engine: 'sqlite',
+  external: {
+    url: '',
+    host: '127.0.0.1',
+    port: 3306,
+    database: 'openmdl',
+    username: 'openmdl',
+    password: '',
+    dialect: 'mysql',
+    ssl: false,
+    acceptInvalidCerts: false,
+    syncIntervalSec: 15
+  },
   status: 'connected',
   lastPing: 'Local (Intégré Tauri SQLite ultra-rapide)',
+  pendingOpsCount: 0,
   format: 'SQLite (.db / .mdlb)'
 };
 

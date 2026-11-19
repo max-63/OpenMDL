@@ -85,7 +85,17 @@ export class CloseSessionModalComponent {
           <span>La collation bénévole offerte est actuellement désactivée par les administrateurs.</span>
         </div>
       `;
+    } else if (perkCheck.policyMode === 'none') {
+      perkStatusHtml = `
+        <div class="p-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-500 dark:text-slate-400 flex items-center gap-2.5">
+          ${Icons.gift('w-5 h-5 text-slate-400 flex-shrink-0')}
+          <span>Aucune conso offerte configurée pour ce compte.</span>
+        </div>
+      `;
     } else if (perkCheck.allowed) {
+      const quotaDetail = perkCheck.maxPerSession > 1
+        ? ` • ${perkCheck.remainingInSession} conso(s) restante(s) sur ${perkCheck.maxPerSession}${perkCheck.claimedInSession > 0 ? ` (déjà ${perkCheck.claimedInSession} prise(s) pendant la séance)` : ''}`
+        : '';
       perkStatusHtml = `
         <div class="p-3 px-4.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-slate-800 dark:text-slate-200 flex flex-wrap items-center justify-between gap-3 shadow-xs">
           <div class="flex items-center gap-3 min-w-0">
@@ -98,9 +108,9 @@ export class CloseSessionModalComponent {
                 <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">Offert</span>
               </div>
               <p class="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                ${perkSettings.rule === 'always' 
-                  ? 'Offerte sans condition pour chaque permanence' 
-                  : `Objectif atteint : ${perkCheck.current} ${perkSettings.rule === 'sales_count' ? 'ventes' : 'articles vendus'} (seuil configuré: ${perkCheck.required})`}
+                ${(perkSettings.rule === 'always'
+                  ? 'Offerte sans condition pour cette permanence'
+                  : `Objectif atteint : ${perkCheck.current} ${perkSettings.rule === 'sales_count' ? 'ventes' : 'articles vendus'} (seuil configuré: ${perkCheck.required})`) + quotaDetail}
               </p>
             </div>
           </div>
@@ -118,6 +128,21 @@ export class CloseSessionModalComponent {
               `).join('')}
             </select>
           </div>
+        </div>
+      `;
+    } else if (perkCheck.sessionsUntilEligible > 0) {
+      perkStatusHtml = `
+        <div class="p-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center gap-2.5 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+          ${Icons.gift('w-5 h-5 text-slate-400 flex-shrink-0')}
+          <span class="font-bold">Collation bénévole :</span>
+          <span class="text-slate-500 dark:text-slate-400 text-xs">${escapeHtml(perkCheck.reason || `Disponible dans ${perkCheck.sessionsUntilEligible} séance(s)`)}</span>
+        </div>
+      `;
+    } else if (perkCheck.claimedInSession > 0 && perkCheck.remainingInSession === 0) {
+      perkStatusHtml = `
+        <div class="p-3 px-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2.5 text-xs sm:text-sm text-emerald-700 dark:text-emerald-300">
+          ${Icons.check('w-5 h-5 text-emerald-500 flex-shrink-0')}
+          <span class="font-bold">Collation déjà prise en cours de séance (${perkCheck.claimedInSession}/${perkCheck.maxPerSession})</span>
         </div>
       `;
     } else {

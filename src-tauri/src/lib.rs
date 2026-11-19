@@ -5,6 +5,7 @@ use tauri::Manager;
 
 mod binary_format;
 mod lan_server;
+mod mysql_storage;
 mod sqlite_storage;
 
 fn get_app_dir(app_handle: &tauri::AppHandle) -> PathBuf {
@@ -25,16 +26,6 @@ pub struct BackupEntryDto {
     pub size_bytes: u64,
     pub is_binary: bool,
     pub modified_secs: u64,
-}
-
-#[tauri::command]
-fn pack_addon_binary(addon_json: String) -> Result<Vec<u8>, String> {
-    binary_format::pack_mdlx(&addon_json)
-}
-
-#[tauri::command]
-fn unpack_addon_binary(bytes: Vec<u8>) -> Result<String, String> {
-    binary_format::unpack_mdlx(&bytes)
 }
 
 #[tauri::command]
@@ -233,162 +224,6 @@ fn exit_app(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
-pub struct AddonFileDto {
-    pub path: String,
-    pub content: String,
-}
-
-#[tauri::command]
-fn open_in_external_editor(
-    app_handle: tauri::AppHandle,
-    addon_id: String,
-    files: Vec<AddonFileDto>,
-) -> Result<String, String> {
-    let app_dir = get_app_dir(&app_handle);
-    let safe_id: String = addon_id
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
-        .collect();
-    let safe_id = if safe_id.is_empty() {
-        "addon".to_string()
-    } else {
-        safe_id
-    };
-
-    let addon_dir = app_dir.join("addons_dev").join(&safe_id);
-    if let Err(e) = fs::create_dir_all(&addon_dir) {
-        return Err(format!(
-            "Impossible de créer le dossier de développement: {}",
-            e
-        ));
-    }
-
-    for file in files {
-        let clean_rel = file.path.trim_start_matches('/');
-        let target_file_path = addon_dir.join(clean_rel);
-        if let Some(parent) = target_file_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let _ = fs::write(target_file_path, file.content);
-    }
-
-    // Assurer la présence de tsconfig.json et openmdl.d.ts pour zéro erreur dans VS Code
-    let tsconfig_path = addon_dir.join("tsconfig.json");
-    if !tsconfig_path.exists() {
-        let tsconfig_content = r#"{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "strict": true,
-    "noEmit": true,
-    "skipLibCheck": true,
-    "moduleResolution": "bundler"
-  },
-  "include": ["src/**/*", "openmdl.d.ts"]
-}
-"#;
-        let _ = fs::write(tsconfig_path, tsconfig_content);
-    }
-
-    let dts_path = addon_dir.join("openmdl.d.ts");
-    if !dts_path.exists() {
-        let dts_content = include_str!("../../docs/api/openmdl.d.ts");
-        let _ = fs::write(dts_path, dts_content);
-    }
-
-    let target_str = addon_dir.to_string_lossy().to_string();
-    let editors = ["code", "lapce", "zed", "codium", "cursor"];
-    let mut launched_editor = None;
-
-    for ed in editors {
-        if std::process::Command::new(ed)
-            .arg(&target_str)
-            .spawn()
-            .is_ok()
-        {
-            launched_editor = Some(ed.to_string());
-            break;
-        }
-    }
-
-    if launched_editor.is_none() {
-        #[cfg(target_os = "linux")]
-        let _ = std::process::Command::new("xdg-open")
-            .arg(&target_str)
-            .spawn();
-        #[cfg(target_os = "macos")]
-        let _ = std::process::Command::new("open").arg(&target_str).spawn();
-        #[cfg(target_os = "windows")]
-        let _ = std::process::Command::new("explorer")
-            .arg(&target_str)
-            .spawn();
-    }
-
-    Ok(format!(
-        "Dossier ouvert dans {} ({})",
-        launched_editor.unwrap_or_else(|| "gestionnaire de fichiers".to_string()),
-        target_str
-    ))
-}
-
-#[tauri::command]
-fn read_addon_files_from_disk(
-    app_handle: tauri::AppHandle,
-    addon_id: String,
-) -> Result<Vec<AddonFileDto>, String> {
-    let app_dir = get_app_dir(&app_handle);
-    let safe_id: String = addon_id
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
-        .collect();
-    let safe_id = if safe_id.is_empty() {
-        "addon".to_string()
-    } else {
-        safe_id
-    };
-
-    let addon_dir = app_dir.join("addons_dev").join(&safe_id);
-    if !addon_dir.exists() {
-        return Err("Dossier de développement introuvable sur le disque".to_string());
-    }
-
-    let mut result = Vec::new();
-    read_dir_recursive(&addon_dir, &addon_dir, &mut result)?;
-    Ok(result)
-}
-
-fn read_dir_recursive(
-    base_dir: &PathBuf,
-    current_dir: &PathBuf,
-    acc: &mut Vec<AddonFileDto>,
-) -> Result<(), String> {
-    if let Ok(entries) = fs::read_dir(current_dir) {
-        for entry in entries.flatten() {
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            if file_name.starts_with('.') || file_name == "node_modules" || file_name == "target" {
-                continue;
-            }
-            let path = entry.path();
-            if path.is_dir() {
-                read_dir_recursive(base_dir, &path, acc)?;
-            } else if path.is_file() {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(rel) = path.strip_prefix(base_dir) {
-                        let rel_str = format!("/{}", rel.to_string_lossy().replace('\\', "/"));
-                        acc.push(AddonFileDto {
-                            path: rel_str,
-                            content,
-                        });
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 #[tauri::command]
 fn start_lan_server(
     app_handle: tauri::AppHandle,
@@ -551,6 +386,151 @@ fn sqlite_reconcile_chat_votes(
     storage.reconcile_client_votes(&candidate_messages)
 }
 
+#[tauri::command]
+fn sqlite_pending_sync_count(app_handle: tauri::AppHandle) -> Result<usize, String> {
+    let storage = get_sqlite(&app_handle)?;
+    storage.count_pending_sync_ops()
+}
+
+#[tauri::command]
+fn sqlite_clear_pending_sync_ops(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let storage = get_sqlite(&app_handle)?;
+    storage.clear_pending_sync_ops()
+}
+
+#[tauri::command]
+async fn mysql_test_connection(
+    config: mysql_storage::MysqlConfig,
+) -> Result<mysql_storage::MysqlTestResult, String> {
+    tauri::async_runtime::spawn_blocking(move || mysql_storage::test_connection(&config))
+        .await
+        .map_err(|e| format!("Erreur tâche MySQL : {}", e))?
+}
+
+fn flush_sqlite_ops_to_mysql(
+    storage: &sqlite_storage::SqliteStorage,
+    config: &mysql_storage::MysqlConfig,
+) -> Result<(usize, usize, Option<String>), String> {
+    let pending = storage.get_pending_sync_ops()?;
+    if pending.is_empty() {
+        return Ok((0, 0, None));
+    }
+    let total_before = pending.len();
+    let (acked, err_opt) = mysql_storage::flush_ops(config, pending)?;
+    for seq in &acked {
+        let _ = storage.delete_sync_op(*seq);
+    }
+    let remaining = storage
+        .count_pending_sync_ops()
+        .unwrap_or_else(|_| total_before.saturating_sub(acked.len()));
+    Ok((acked.len(), remaining, err_opt))
+}
+
+#[tauri::command]
+async fn mysql_execute_op(
+    app_handle: tauri::AppHandle,
+    config: mysql_storage::MysqlConfig,
+    op_type: String,
+    payload: String,
+) -> Result<mysql_storage::MysqlOpResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = get_sqlite(&app_handle)?;
+        let (_flushed, remaining_before, flush_err) = flush_sqlite_ops_to_mysql(&storage, &config)?;
+
+        if remaining_before > 0 {
+            storage.enqueue_sync_op(&op_type, &payload)?;
+            let count = storage.count_pending_sync_ops().unwrap_or(remaining_before + 1);
+            return Ok(mysql_storage::MysqlOpResult {
+                synced: false,
+                queued: true,
+                pending_count: count,
+                error: flush_err,
+            });
+        }
+
+        match mysql_storage::execute_atomic_op(&config, &op_type, &payload) {
+            Ok(()) => Ok(mysql_storage::MysqlOpResult {
+                synced: true,
+                queued: false,
+                pending_count: 0,
+                error: None,
+            }),
+            Err(err) => {
+                storage.enqueue_sync_op(&op_type, &payload)?;
+                let count = storage.count_pending_sync_ops().unwrap_or(1);
+                Ok(mysql_storage::MysqlOpResult {
+                    synced: false,
+                    queued: true,
+                    pending_count: count,
+                    error: Some(err),
+                })
+            }
+        }
+    })
+    .await
+    .map_err(|e| format!("Erreur tâche MySQL : {}", e))?
+}
+
+#[tauri::command]
+async fn mysql_flush_pending_ops(
+    app_handle: tauri::AppHandle,
+    config: mysql_storage::MysqlConfig,
+) -> Result<mysql_storage::MysqlFlushResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = get_sqlite(&app_handle)?;
+        let (flushed_count, remaining_count, error) = flush_sqlite_ops_to_mysql(&storage, &config)?;
+        Ok(mysql_storage::MysqlFlushResult {
+            flushed_count,
+            remaining_count,
+            error,
+        })
+    })
+    .await
+    .map_err(|e| format!("Erreur tâche MySQL : {}", e))?
+}
+
+#[tauri::command]
+async fn mysql_pull_snapshot(
+    app_handle: tauri::AppHandle,
+    config: mysql_storage::MysqlConfig,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = get_sqlite(&app_handle)?;
+        let (_flushed, remaining, flush_err) = flush_sqlite_ops_to_mysql(&storage, &config)?;
+        if remaining > 0 {
+            return Err(format!(
+                "Impossible de synchroniser depuis MySQL : {} opération(s) locale(s) en attente ({}).",
+                remaining,
+                flush_err.unwrap_or_else(|| "serveur hors-ligne".to_string())
+            ));
+        }
+
+        let mut snapshot = mysql_storage::pull_snapshot(&config)?;
+        if let Some(obj) = snapshot.as_object_mut() {
+            obj.insert("pendingCount".to_string(), serde_json::json!(0));
+        }
+        Ok(snapshot)
+    })
+    .await
+    .map_err(|e| format!("Erreur tâche MySQL : {}", e))?
+}
+
+#[tauri::command]
+async fn mysql_push_snapshot(
+    app_handle: tauri::AppHandle,
+    config: mysql_storage::MysqlConfig,
+    snapshot: serde_json::Value,
+) -> Result<mysql_storage::MysqlMigrateResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = get_sqlite(&app_handle)?;
+        let res = mysql_storage::push_snapshot(&config, &snapshot)?;
+        let _ = storage.clear_pending_sync_ops();
+        Ok(res)
+    })
+    .await
+    .map_err(|e| format!("Erreur tâche MySQL : {}", e))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -582,16 +562,12 @@ pub fn run() {
             save_backup_binary,
             list_backups,
             read_backup_file,
-            pack_addon_binary,
-            unpack_addon_binary,
             pack_backup_binary,
             unpack_backup_binary,
             write_binary_file,
             read_binary_file,
             append_log,
             exit_app,
-            open_in_external_editor,
-            read_addon_files_from_disk,
             start_lan_server,
             stop_lan_server,
             get_lan_server_info,
@@ -610,6 +586,13 @@ pub fn run() {
             sqlite_save_chat_message,
             sqlite_get_chat_messages,
             sqlite_reconcile_chat_votes,
+            sqlite_pending_sync_count,
+            sqlite_clear_pending_sync_ops,
+            mysql_test_connection,
+            mysql_execute_op,
+            mysql_flush_pending_ops,
+            mysql_pull_snapshot,
+            mysql_push_snapshot,
             open_external_url
         ])
         .run(tauri::generate_context!())

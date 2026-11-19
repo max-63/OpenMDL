@@ -46,7 +46,6 @@ OpenMDL simplifie la gestion quotidienne des permanences au foyer : encaissement
 | **Statistiques & Comptabilité** | Tableaux de bord financiers (CA, marge brute, bénéfice net) avec déduction exacte des frais bancaires (ex: 1,75% SumUp) et graphiques mensuels/annuels. |
 | **Clôture de Caisse & Export** | Procédure de fermeture de caisse guidée avec comptage du tiroir-caisse et export comptable CSV/Excel pour l'intendance ou le trésorier. |
 | **Sauvegardes Binaires (.mdlb)** | Format binaire propriétaire ultra-léger et compressé en Rust (Zlib) avec contrôle d'intégrité CRC32 anti-corruption, généré automatiquement à chaque clôture. |
-| **Addons & Modding (.mdlx)** | Bibliothèque d'extensions en TypeScript développables dans VS Code / Lapce avec packaging binaire `.mdlx` et synchronisation en direct sans redémarrage. |
 | **Sécurité & Rôles** | Mode Vendeur / Trésorier sécurisé par mot de passe et droits délégués CVL pour protéger les statistiques financières et les paramètres. |
 | **Design & Confort** | Thème Sombre et Clair automatique, fenêtre sans bordure personnalisée (`-`, `□`, `✕`) et logo officiel transparent. |
 

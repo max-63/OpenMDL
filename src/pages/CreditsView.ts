@@ -54,7 +54,7 @@ export class CreditsView {
               <div class="flex-1 min-w-0">
                 <h2 class="text-xl font-black text-slate-900 dark:text-white tracking-tight">Adrien Courault</h2>
                 <p class="text-xs text-slate-500 dark:text-slate-400 font-medium pt-1 leading-relaxed">
-                  Architecte logiciel, conception de l'ensemble du cœur applicatif OpenMDL, de l'interface POS, du moteur d'addons et de l'infrastructure de distribution multiplateforme.
+                  Architecte logiciel, conception de l'ensemble du cœur applicatif OpenMDL, de l'interface POS et de l'infrastructure de distribution multiplateforme.
                 </p>
               </div>
             </div>
@@ -124,11 +124,7 @@ export class CreditsView {
           </p>
 
           <p>
-            <strong>Clause de Sanctuarisation Inaltérable :</strong> La présente page de crédits, l'identité visuelle de marque et les mentions de paternité d'Adrien Courault et Baly Jérémy sont protégées au niveau du cœur applicatif. Aucun addon ou extension externe ne dispose de l'autorisation logicielle ou légale d'occulter, de masquer ou de falsifier ces mentions.
-          </p>
-
-          <p>
-            <strong>Interdiction de Monétisation des Addons :</strong> Tous les addons développés pour OpenMDL doivent demeurer 100% gratuits, libres et ouverts. Toute commercialisation, revente ou système payant d'extension est formellement prohibé.
+            <strong>Clause de Sanctuarisation Inaltérable :</strong> La présente page de crédits, l'identité visuelle de marque et les mentions de paternité d'Adrien Courault et Baly Jérémy sont protégées au niveau du cœur applicatif. Nul n'est autorisé à occulter, masquer ou falsifier ces mentions.
           </p>
         </div>
 

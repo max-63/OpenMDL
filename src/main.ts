@@ -1,7 +1,7 @@
 import './style.css';
 import { db } from './services/db';
 import { storageService } from './services/db/storageService';
-import { addonManager } from './services/addonManager';
+import { externalDbService } from './services/db/externalDbService';
 import { CartComponent } from './components/Cart';
 import { HeaderComponent } from './components/Header';
 import { CheckoutModalComponent } from './components/CheckoutModal';
@@ -11,9 +11,9 @@ import { CatalogView } from './pages/CatalogView';
 import { RestockView } from './pages/RestockView';
 import { StatsView } from './pages/StatsView';
 import { SettingsView } from './pages/SettingsView';
+import { SystemView } from './pages/SystemView';
 import { TpeView } from './pages/TpeView';
 import { PlanningView } from './pages/PlanningView';
-import { AddonsView } from './pages/AddonsView';
 import { CreditsView } from './pages/CreditsView';
 import { DecaisseView } from './pages/DecaisseView';
 import { ChatView } from './pages/ChatView';
@@ -33,6 +33,7 @@ class App {
   private cart: CartComponent;
   private activeChatView: ChatView | null = null;
   private pendingRender = false;
+  private lastRenderedTab: string | null = null;
 
   private isUiBusy(): boolean {
     if (document.querySelector('.fixed.inset-0.z-50, .fixed.inset-0.z-\\[10000\\]')) {
@@ -76,7 +77,6 @@ class App {
       (method: PaymentMethod) => this.openCheckout(method),
       () => this.render()
     );
-    (window as any).__OPENMDL_CART__ = this.cart;
     if (!(window as any).OpenMDL) {
       (window as any).OpenMDL = {};
     }
@@ -119,19 +119,8 @@ class App {
     });
     window.addEventListener('beforeunload', () => {
       void storageService.flushPendingWrites();
+      void externalDbService.flushInFlight();
     });
-
-    // Écouter les changements du gestionnaire d'addons
-    addonManager.subscribe(() => {
-      this.render();
-    });
-    addonManager.setNavigationCallback((tabId: string) => {
-      this.currentTab = tabId;
-      this.render();
-    });
-
-    // Démarrer les addons actifs au lancement
-    addonManager.initActiveAddons();
 
     // Écouter les alertes de fermeture du poste Foyer (pour clients Vie Scolaire)
     syncService.onShutdownAlert((msg) => {
@@ -257,7 +246,26 @@ class App {
     checkoutModal.show();
   }
 
+  private getDefaultTab(volunteer: ReturnType<typeof db.getCurrentVolunteer>): string {
+    const perms = db.getEffectivePermissions(volunteer);
+    if (db.getAppProfile() === 'visco') {
+      if (perms.canViewDecaisse) return 'decaisse';
+      if (perms.canViewStats) return 'stats';
+      return 'agenda';
+    }
+    if (perms.canSell) return 'dashboard';
+    if (perms.canViewCatalog) return 'catalog';
+    if (perms.canViewStats) return 'stats';
+    if (perms.canViewDecaisse) return 'decaisse';
+    if (perms.canViewTpe) return 'tpe';
+    if (perms.canManageUsers) return 'settings';
+    return 'agenda';
+  }
+
   public render(): void {
+    const prevScrollEl = this.appRoot.querySelector('main > *') as HTMLElement | null;
+    const savedScrollTop = this.lastRenderedTab === this.currentTab && prevScrollEl ? prevScrollEl.scrollTop : 0;
+
     this.appRoot.innerHTML = '';
 
     const currentVolunteer = db.getCurrentVolunteer();
@@ -266,11 +274,36 @@ class App {
     if (!currentVolunteer) {
       this.appRoot.className = 'min-h-screen flex flex-col bg-slate-100 dark:bg-[#0b0f19]';
       const loginView = new LoginView(() => {
-        this.currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
+        this.currentTab = this.getDefaultTab(db.getCurrentVolunteer());
         this.render();
       });
       this.appRoot.appendChild(loginView.render());
       return;
+    }
+
+    const perms = db.getEffectivePermissions(currentVolunteer);
+    const isTabAllowed = (tab: string): boolean => {
+      switch (tab) {
+        case 'dashboard': return db.getAppProfile() !== 'visco' && perms.canSell;
+        case 'decaisse': return perms.canViewDecaisse;
+        case 'catalog': return perms.canViewCatalog;
+        case 'restock': return perms.canRestock;
+        case 'stats': return perms.canViewStats;
+        case 'tpe': return perms.canViewTpe;
+        case 'settings': return perms.canManageUsers;
+        case 'system': return perms.canAccessSystem;
+        case 'agenda':
+        case 'credits':
+        case 'chat':
+        case 'profile':
+          return true;
+        default:
+          return false;
+      }
+    };
+
+    if (!isTabAllowed(this.currentTab)) {
+      this.currentTab = this.getDefaultTab(currentVolunteer);
     }
 
     // 2. Si connecté -> Layout moderne plein écran avec îlots flottants (style IDE / VS Code)
@@ -300,9 +333,9 @@ class App {
     switch (this.currentTab) {
       case 'dashboard': {
         if (db.getAppProfile() === 'visco') {
-          this.currentTab = 'decaisse';
-          const decaisse = new DecaisseView();
-          pageContainer.appendChild(decaisse.render());
+          this.currentTab = this.getDefaultTab(currentVolunteer);
+          const agendaFallback = this.currentTab === 'decaisse' ? new DecaisseView() : new PlanningView(() => this.render());
+          pageContainer.appendChild(agendaFallback.render());
         } else {
           const dashboard = new DashboardView(this.cart);
           pageContainer.appendChild(dashboard.render());
@@ -339,27 +372,29 @@ class App {
         pageContainer.appendChild(tpeView.render());
         break;
       }
-      case 'addons': {
-        if (currentVolunteer.isAdmin) {
-          const addons = new AddonsView();
-          pageContainer.appendChild(addons.render());
-        } else {
-          this.currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
-          this.render();
-        }
+      case 'settings': {
+        const settings = new SettingsView(
+          () => this.render(),
+          (tab) => {
+            this.currentTab = tab;
+            this.render();
+          }
+        );
+        pageContainer.appendChild(settings.render());
+        setTimeout(() => {
+          kofiService.showOverlay('settings');
+        }, 100);
         break;
       }
-      case 'settings': {
-        if (currentVolunteer.isAdmin || db.getAppProfile() === 'visco') {
-          const settings = new SettingsView(() => this.render());
-          pageContainer.appendChild(settings.render());
-          setTimeout(() => {
-            kofiService.showOverlay('settings');
-          }, 100);
-        } else {
-          this.currentTab = db.getAppProfile() === 'visco' ? 'decaisse' : 'dashboard';
-          this.render();
-        }
+      case 'system': {
+        const systemView = new SystemView(
+          () => this.render(),
+          (tab) => {
+            this.currentTab = tab;
+            this.render();
+          }
+        );
+        pageContainer.appendChild(systemView.render());
         break;
       }
       case 'credits': {
@@ -380,28 +415,20 @@ class App {
       }
       default: {
         this.activeChatView = null;
-        // Vérifier si un onglet d'addon dynamique actif correspond
-        const registeredTab = addonManager.getRegisteredTabs().find(t => t.id === this.currentTab);
-        if (registeredTab) {
-          const tabContainer = document.createElement('div');
-          tabContainer.className = 'w-full h-full flex flex-col min-h-0 overflow-hidden animate-enter';
-          registeredTab.render(tabContainer);
-          pageContainer.appendChild(tabContainer);
-          break;
-        }
-
-        if (db.getAppProfile() === 'visco') {
-          const decaisse = new DecaisseView();
-          pageContainer.appendChild(decaisse.render());
-        } else {
-          const dashboard = new DashboardView(this.cart);
-          pageContainer.appendChild(dashboard.render());
-        }
+        const planning = new PlanningView(() => this.render());
+        pageContainer.appendChild(planning.render());
         break;
       }
     }
 
     this.appRoot.appendChild(pageContainer);
+    this.lastRenderedTab = this.currentTab;
+    if (savedScrollTop > 0) {
+      const nextScrollEl = pageContainer.firstElementChild as HTMLElement | null;
+      if (nextScrollEl) {
+        nextScrollEl.scrollTop = savedScrollTop;
+      }
+    }
   }
 
   private updateHeaderChatBadge(): void {

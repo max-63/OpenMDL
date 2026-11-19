@@ -1,6 +1,6 @@
 [package]
 name = "openmdl"
-version = "1.0.13"
+version = "1.1.0"
 description = "OpenMDL Caisse et Foyer Lycee"
 authors = ["you"]
 license = ""
@@ -29,3 +29,4 @@ tiny_http = "0.12"
 flate2 = "1.0"
 crc32fast = "1.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
+mysql = { version = "28", default-features = false, features = ["minimal-rust", "buffer-pool", "rustls-tls-ring"] }

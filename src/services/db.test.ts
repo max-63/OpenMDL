@@ -14,17 +14,18 @@ const localStorageMock = {
 
 (globalThis as any).localStorage = localStorageMock;
 (globalThis as any).window = {
-  OpenMDL: { events: { emit: () => {} } },
   dispatchEvent: () => {},
   addEventListener: () => {}
 };
 
 import { db, computeCrc32Hex } from './db.ts';
+import { parseDatabaseUrl, buildDatabaseUrl, externalDbService } from './db/externalDbService.ts';
 import {
   EURO_DENOMINATIONS,
   decomposeCashAmount,
   decomposeSmartCashChange,
-  calculateCashTotal
+  calculateCashTotal,
+  getDefaultPermissionsForRole
 } from '../types/index.ts';
 import { escapeHtml, sanitizeText } from '../utils/security.ts';
 import type { Product, CartItem } from '../types/index.ts';
@@ -400,4 +401,408 @@ test('DatabaseService - Préservation des visas locaux lors de importData et pur
   assert.equal(db.getTpeLogs().length, 0);
   assert.equal(db.getPacmanScores().length, 0);
   assert.equal(db.getSessions().length, 0);
+});
+
+// -------------------------------------------------------------
+// 7. Tests Base Externe MySQL / MariaDB & Cache SQLite
+// -------------------------------------------------------------
+test('ExternalDbService - Parsing et construction d\'URL MySQL / MariaDB', () => {
+  const mysqlParsed = parseDatabaseUrl('mysql://foyer_user:p%40ss%2F123@db.lycee.local:3307/openmdl_db?ssl=true');
+  assert.ok(mysqlParsed);
+  assert.equal(mysqlParsed.dialect, 'mysql');
+  assert.equal(mysqlParsed.username, 'foyer_user');
+  assert.equal(mysqlParsed.password, 'p@ss/123');
+  assert.equal(mysqlParsed.host, 'db.lycee.local');
+  assert.equal(mysqlParsed.port, 3307);
+  assert.equal(mysqlParsed.database, 'openmdl_db');
+  assert.equal(mysqlParsed.ssl, true);
+
+  const mariaParsed = parseDatabaseUrl('mariadb://admin@192.168.1.50/foyer?ssl=true&danger_accept_invalid_certs=true');
+  assert.ok(mariaParsed);
+  assert.equal(mariaParsed.dialect, 'mariadb');
+  assert.equal(mariaParsed.port, 3306);
+  assert.equal(mariaParsed.database, 'foyer');
+  assert.equal(mariaParsed.ssl, true);
+  assert.equal(mariaParsed.acceptInvalidCerts, true);
+
+  assert.equal(parseDatabaseUrl('http://invalid'), null);
+
+  const rebuilt = buildDatabaseUrl({
+    host: 'db.lycee.local',
+    port: 3307,
+    database: 'openmdl_db',
+    username: 'foyer_user',
+    password: 'p@ss/123',
+    dialect: 'mariadb',
+    ssl: true,
+    acceptInvalidCerts: true
+  });
+  assert.equal(
+    rebuilt,
+    'mariadb://foyer_user:p%40ss%2F123@db.lycee.local:3307/openmdl_db?ssl=true&danger_accept_invalid_certs=true'
+  );
+});
+
+test('DatabaseService - Bascule SQLite <-> MySQL, filtre sessions fermées, anti-wipe et zéro re-render inutile', () => {
+  const resMysql = db.updateDatabaseConfig({
+    engine: 'mysql',
+    external: {
+      url: 'mysql://u:p@127.0.0.1:3306/openmdl',
+      host: '127.0.0.1',
+      port: 3306,
+      database: 'openmdl',
+      username: 'u',
+      password: 'p',
+      dialect: 'mysql',
+      ssl: false,
+      acceptInvalidCerts: false,
+      syncIntervalSec: 15
+    }
+  });
+  assert.equal(resMysql.success, true);
+  assert.equal(db.getDatabaseConfig().engine, 'mysql');
+  assert.equal(db.getDatabaseConfig().external?.database, 'openmdl');
+
+  // Garde anti-wipe : un snapshot distant vide ne doit pas effacer le cache local
+  const emptyRes = db.applyExternalSnapshot({
+    products: [],
+    sales: [],
+    sessions: [],
+    volunteers: []
+  });
+  assert.equal(emptyRes.applied, false);
+  assert.equal(emptyRes.emptyRemote, true);
+
+  const snapshotPayload = {
+    products: [
+      {
+        id: 'prod-mysql-1',
+        name: 'Oasis Tropical',
+        category: 'boissons',
+        price: 1.0,
+        costPrice: 0.45,
+        stock: 24,
+        minStockAlert: 5,
+        imageUrl: '',
+        isActive: true
+      }
+    ],
+    sales: [],
+    sessions: [
+      {
+        id: 'sess-other-active',
+        startTime: '2026-11-19T10:00:00.000Z',
+        volunteerId: 'vol-2',
+        volunteerName: 'Autre Caisse',
+        totalSales: 10,
+        totalCash: 10,
+        totalTpe: 0,
+        salesCount: 2,
+        status: 'active'
+      },
+      {
+        id: 'sess-closed-1',
+        startTime: '2026-11-18T10:00:00.000Z',
+        endTime: '2026-11-18T12:00:00.000Z',
+        volunteerId: 'vol-admin',
+        volunteerName: 'Administrateur',
+        totalSales: 50,
+        totalCash: 30,
+        totalTpe: 20,
+        salesCount: 15,
+        status: 'closed'
+      }
+    ],
+    volunteers: [
+      {
+        id: 'vol-admin',
+        username: 'admin',
+        password: 'admin',
+        name: 'Administrateur',
+        role: 'Administrateur',
+        avatarColor: '#ea580c',
+        isAdmin: true
+      }
+    ]
+  };
+
+  // Snapshot peuplé : applique les données atomiquement dans le cache local et exclut les séances actives des autres postes
+  const populatedRes = db.applyExternalSnapshot(snapshotPayload);
+  assert.equal(populatedRes.emptyRemote, false);
+  assert.equal(populatedRes.applied, true);
+  assert.equal(db.getProductById('prod-mysql-1')?.stock, 24);
+  assert.equal(db.getSessions().some(s => s.id === 'sess-other-active'), false);
+  assert.equal(db.getSessions().some(s => s.id === 'sess-closed-1'), true);
+
+  // Appel répété avec les mêmes données : ne doit déclencher aucun notify()
+  let notifyCount = 0;
+  const unsubscribe = db.subscribe(() => {
+    notifyCount++;
+  });
+  const repeatRes = db.applyExternalSnapshot(snapshotPayload);
+  unsubscribe();
+  assert.equal(repeatRes.applied, false);
+  assert.equal(notifyCount, 0);
+
+  // Retour propre sur SQLite pour ne laisser aucun timer actif
+  db.updateDatabaseConfig({ engine: 'sqlite' });
+  externalDbService.stopAutoSync();
+  assert.equal(db.getDatabaseConfig().engine, 'sqlite');
+});
+
+// -------------------------------------------------------------
+// 7. Tests Permissions Granulaires & Politiques Conso par Utilisateur
+// -------------------------------------------------------------
+test('Permissions - Presets par rôle, blocage côté service et modification dynamique', () => {
+  // Presets de base par rôle
+  const benevolePerms = getDefaultPermissionsForRole('Bénévole Permanence', false);
+  assert.equal(benevolePerms.canSell, true);
+  assert.equal(benevolePerms.canViewCatalog, true);
+  assert.equal(benevolePerms.canViewStats, false);
+  assert.equal(benevolePerms.canViewTpe, false);
+  assert.equal(benevolePerms.canViewDecaisse, false);
+  assert.equal(benevolePerms.canVisaDecaisse, false);
+  assert.equal(benevolePerms.canEditCatalog, false);
+  assert.equal(benevolePerms.canRestock, false);
+  assert.equal(benevolePerms.canManageUsers, false);
+  assert.equal(benevolePerms.canAccessSystem, false);
+
+  const surveillantPerms = getDefaultPermissionsForRole('Surveillant / Vie Scolaire', false);
+  assert.equal(surveillantPerms.canViewDecaisse, true);
+  assert.equal(surveillantPerms.canVisaDecaisse, true);
+  assert.equal(surveillantPerms.canViewStats, true);
+  assert.equal(surveillantPerms.canViewTpe, false);
+  assert.equal(surveillantPerms.canManageUsers, false);
+  assert.equal(surveillantPerms.canAccessSystem, false);
+
+  const adminPerms = getDefaultPermissionsForRole('Administrateur', true);
+  assert.ok(Object.values(adminPerms).every(Boolean));
+
+  // Préparation compte admin connecté + création d'un bénévole & d'une séance avec retrait à viser
+  db.login('vol-admin');
+  const createBenev = db.createUser({
+    name: 'Camille Bénévole',
+    username: 'camille_' + Date.now(),
+    password: '123',
+    role: 'Bénévole Permanence',
+    isAdmin: false
+  });
+  assert.equal(createBenev.success, true);
+  const benev = createBenev.volunteer!;
+  assert.equal(db.hasPermission('canViewStats', benev), false);
+  assert.equal(db.hasPermission('canVisaDecaisse', benev), false);
+
+  const prodBefore = { ...db.getProducts()[0] };
+  const sessVisaId = 'sess-visa-perm-' + Date.now();
+  db.importData({
+    sessions: [
+      {
+        id: sessVisaId,
+        startTime: '2026-11-15T09:00:00.000Z',
+        endTime: '2026-11-15T11:00:00.000Z',
+        volunteerId: 'vol-admin',
+        volunteerName: 'Administrateur',
+        totalSales: 12,
+        totalCash: 12,
+        totalTpe: 0,
+        salesCount: 3,
+        status: 'closed',
+        cashWithdrawal: {
+          items: [],
+          totalCounted: 62,
+          totalWithdrawn: 12,
+          totalRemainingFloat: 50,
+          expectedCashSales: 12,
+          cashDiscrepancy: 0,
+          carriedOverDeficits: {},
+          timestamp: '2026-11-15T11:00:00.000Z'
+        }
+      }
+    ]
+  });
+
+  // Connexion en tant que bénévole : opérations sensibles bloquées
+  assert.equal(db.login(benev.id), true);
+  assert.equal(db.visaCashWithdrawal(sessVisaId, benev.name, 'Test interdit'), false);
+  db.updateProduct({ ...prodBefore, price: prodBefore.price + 5 });
+  assert.equal(db.getProductById(prodBefore.id)?.price, prodBefore.price);
+  db.applyRestock(prodBefore.id, 50);
+  assert.equal(db.getProductById(prodBefore.id)?.stock, prodBefore.stock);
+  db.connectTpe({ merchantName: 'Hack TPE' });
+  assert.notEqual(db.getTpeSettings().merchantName, 'Hack TPE');
+
+  // Reconnexion Admin : attribution explicite des flags Visa + Restock à Camille
+  assert.equal(db.login('vol-admin'), true);
+  const updRes = db.updateUserPermissionsAndPerk(benev.id, {
+    role: 'Surveillant / Vie Scolaire',
+    isAdmin: false,
+    permissions: {
+      ...benevolePerms,
+      canViewDecaisse: true,
+      canVisaDecaisse: true,
+      canRestock: true
+    }
+  });
+  assert.equal(updRes.success, true);
+
+  // Reconnexion Camille : Visa & Restock désormais autorisés, TPE toujours bloqué
+  assert.equal(db.login(benev.id), true);
+  assert.equal(db.hasPermission('canViewDecaisse'), true);
+  assert.equal(db.hasPermission('canVisaDecaisse'), true);
+  assert.equal(db.hasPermission('canViewTpe'), false);
+  assert.equal(db.visaCashWithdrawal(sessVisaId, benev.name, 'Validé'), true);
+  db.applyRestock(prodBefore.id, 10);
+  assert.equal(db.getProductById(prodBefore.id)?.stock, prodBefore.stock + 10);
+
+  // Restauration propre en admin
+  db.login('vol-admin');
+});
+
+test('Conso Gratuite - Politiques par utilisateur (aucune, 1/séance, 2 une fois sur 2, 4/séance)', () => {
+  db.login('vol-admin');
+  db.updatePerkSettings({
+    enabled: true,
+    rule: 'always',
+    threshold: 1,
+    allowMultiplePerDay: false
+  });
+
+  const targetProd = db.addProduct({
+    name: 'Boisson Conso Test',
+    category: 'boissons',
+    price: 1.0,
+    costPrice: 0.4,
+    stock: 30,
+    minStockAlert: 5,
+    imageUrl: '',
+    isActive: true
+  });
+
+  // 1. Politique "aucune" (0 conso même quand la règle globale est "always")
+  const noConsoUser = db.createUser({
+    name: 'Sans Conso',
+    username: 'sansconso_' + Date.now(),
+    password: '123',
+    role: 'Bénévole Permanence',
+    perkPolicy: { mode: 'none', quantity: 1, everyNSessions: 1 }
+  }).volunteer!;
+
+  const noConsoCheck = db.canClaimVolunteerPerk(noConsoUser.id, 'sess-none-1');
+  assert.equal(noConsoCheck.allowed, false);
+  assert.equal(noConsoCheck.policyMode, 'none');
+  assert.equal(noConsoCheck.maxPerSession, 0);
+
+  // 2. Politique "1 conso par séance"
+  const onePerSessUser = db.createUser({
+    name: 'Un Par Seance',
+    username: 'unconso_' + Date.now(),
+    password: '123',
+    role: 'Bénévole Permanence',
+    perkPolicy: { mode: 'custom', quantity: 1, everyNSessions: 1, ignoreThreshold: true }
+  }).volunteer!;
+
+  assert.equal(db.canClaimVolunteerPerk(onePerSessUser.id, 'sess-1-a').allowed, true);
+  assert.equal(db.claimVolunteerPerk(onePerSessUser.id, targetProd.id, 'sess-1-a').success, true);
+  const afterFirst = db.canClaimVolunteerPerk(onePerSessUser.id, 'sess-1-a');
+  assert.equal(afterFirst.allowed, false);
+  assert.equal(afterFirst.remainingInSession, 0);
+
+  // 3. Politique "2 consos une fois sur 2" (séance 1 ok x2, séance 2 bloquée, séance 3 ok x2)
+  const twoEveryTwoUser = db.createUser({
+    name: 'Deux Sur Deux',
+    username: 'deuxsurdeux_' + Date.now(),
+    password: '123',
+    role: 'Bénévole Permanence',
+    perkPolicy: { mode: 'custom', quantity: 2, everyNSessions: 2, ignoreThreshold: true }
+  }).volunteer!;
+
+  // Séance 1 (pas d'historique avant) -> 2 consos autorisées
+  const sess22_1 = {
+    id: 'sess-22-1',
+    startTime: '2026-11-16T09:00:00.000Z',
+    endTime: '2026-11-16T10:00:00.000Z',
+    volunteerId: twoEveryTwoUser.id,
+    volunteerName: twoEveryTwoUser.name,
+    totalSales: 0,
+    totalCash: 0,
+    totalTpe: 0,
+    salesCount: 0,
+    status: 'closed' as const
+  };
+  db.importData({
+    sessions: [...db.getSessions(), sess22_1]
+  });
+  let check22 = db.canClaimVolunteerPerk(twoEveryTwoUser.id, 'sess-22-1');
+  assert.equal(check22.allowed, true);
+  assert.equal(check22.maxPerSession, 2);
+  assert.equal(check22.remainingInSession, 2);
+
+  assert.equal(db.claimVolunteerPerk(twoEveryTwoUser.id, targetProd.id, 'sess-22-1').success, true);
+  check22 = db.canClaimVolunteerPerk(twoEveryTwoUser.id, 'sess-22-1');
+  assert.equal(check22.allowed, true);
+  assert.equal(check22.remainingInSession, 1);
+
+  assert.equal(db.claimVolunteerPerk(twoEveryTwoUser.id, targetProd.id, 'sess-22-1').success, true);
+  check22 = db.canClaimVolunteerPerk(twoEveryTwoUser.id, 'sess-22-1');
+  assert.equal(check22.allowed, false);
+  assert.equal(check22.remainingInSession, 0);
+
+  // Séance 2 -> bloquée (conso prise à la séance 1, 1 séance à attendre)
+  const sess22_2 = {
+    id: 'sess-22-2',
+    startTime: '2026-11-17T09:00:00.000Z',
+    endTime: '2026-11-17T10:00:00.000Z',
+    volunteerId: twoEveryTwoUser.id,
+    volunteerName: twoEveryTwoUser.name,
+    totalSales: 0,
+    totalCash: 0,
+    totalTpe: 0,
+    salesCount: 0,
+    status: 'closed' as const
+  };
+  db.importData({
+    sessions: [...db.getSessions(), sess22_2]
+  });
+  const check22Sess2 = db.canClaimVolunteerPerk(twoEveryTwoUser.id, 'sess-22-2');
+  assert.equal(check22Sess2.allowed, false);
+  assert.equal(check22Sess2.sessionsUntilEligible, 1);
+
+  // Séance 3 -> ré-autorisée (aucune conso prise en séance 2)
+  const sess22_3 = {
+    id: 'sess-22-3',
+    startTime: '2026-11-18T09:00:00.000Z',
+    volunteerId: twoEveryTwoUser.id,
+    volunteerName: twoEveryTwoUser.name,
+    totalSales: 0,
+    totalCash: 0,
+    totalTpe: 0,
+    salesCount: 0,
+    status: 'active' as const
+  };
+  db.importData({
+    sessions: [...db.getSessions(), sess22_3]
+  });
+  const check22Sess3 = db.canClaimVolunteerPerk(twoEveryTwoUser.id, 'sess-22-3');
+  assert.equal(check22Sess3.allowed, true);
+  assert.equal(check22Sess3.remainingInSession, 2);
+
+  // 4. Politique "4 consos par séance" -> 4 autorisées, 5e bloquée
+  const fourUser = db.createUser({
+    name: 'Quatre Consos',
+    username: 'quatre_' + Date.now(),
+    password: '123',
+    role: 'Bureau MDL',
+    perkPolicy: { mode: 'custom', quantity: 4, everyNSessions: 1, ignoreThreshold: true }
+  }).volunteer!;
+
+  for (let i = 0; i < 4; i++) {
+    const c = db.canClaimVolunteerPerk(fourUser.id, 'sess-4-1');
+    assert.equal(c.allowed, true);
+    assert.equal(c.remainingInSession, 4 - i);
+    assert.equal(db.claimVolunteerPerk(fourUser.id, targetProd.id, 'sess-4-1').success, true);
+  }
+  const afterFour = db.canClaimVolunteerPerk(fourUser.id, 'sess-4-1');
+  assert.equal(afterFour.allowed, false);
+  assert.equal(afterFour.claimedInSession, 4);
+  assert.equal(afterFour.remainingInSession, 0);
 });

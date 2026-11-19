@@ -21,8 +21,13 @@ import type {
   ChatChannel,
   ChatSettings,
   VolunteerThemeSettings,
-  DatabaseConnectionConfig
+  DatabaseConnectionConfig,
+  ExternalDatabaseConfig,
+  UserPermissions,
+  VolunteerPerkPolicy,
+  VolunteerPerkMode
 } from '../types';
+import { resolveVolunteerPermissions } from '../types/index.ts';
 
 import {
   computeCrc32Hex,
@@ -48,6 +53,7 @@ import { perkService } from './db/perkService.ts';
 import { volunteerService } from './db/volunteerService.ts';
 import { backupService } from './db/backupService.ts';
 import { demoDataService } from './db/demoDataService.ts';
+import { externalDbService } from './db/externalDbService.ts';
 
 export {
   computeCrc32Hex,
@@ -76,11 +82,46 @@ export class DatabaseService {
   private chatMessages: ChatMessage[] = [];
   private chatChannels: ChatChannel[] = [];
   private chatSettings: ChatSettings = { ...DEFAULT_CHAT_SETTINGS };
-  private databaseConfig: DatabaseConnectionConfig = { ...DEFAULT_DATABASE_CONFIG };
+  private databaseConfig: DatabaseConnectionConfig = {
+    ...DEFAULT_DATABASE_CONFIG,
+    external: { ...DEFAULT_DATABASE_CONFIG.external! }
+  };
   private listeners: Set<() => void> = new Set();
+  private suppressExternalSync = false;
 
   constructor() {
     this.loadAll();
+  }
+
+  private dispatchExternalOp(opType: string, payload: unknown): void {
+    if (this.suppressExternalSync || !externalDbService.isExternalEnabled(this.databaseConfig)) {
+      return;
+    }
+
+    void externalDbService.executeOp(this.databaseConfig, opType, payload, (statusUpdate) => {
+      const prevStatus = this.databaseConfig.status;
+      const prevPending = this.databaseConfig.pendingOpsCount || 0;
+      const prevError = this.databaseConfig.lastError;
+
+      this.databaseConfig = {
+        ...this.databaseConfig,
+        status: statusUpdate.status,
+        pendingOpsCount: statusUpdate.pendingOpsCount,
+        lastError: statusUpdate.lastError,
+        lastPing: statusUpdate.status === 'connected'
+          ? new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : this.databaseConfig.lastPing
+      };
+      storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
+
+      if (
+        prevStatus !== this.databaseConfig.status ||
+        prevPending !== (this.databaseConfig.pendingOpsCount || 0) ||
+        prevError !== this.databaseConfig.lastError
+      ) {
+        this.notify();
+      }
+    });
   }
 
   public subscribe(listener: () => void): () => void {
@@ -172,7 +213,12 @@ export class DatabaseService {
               storageService.setLocalCacheOnly(k, v);
               changed = true;
             } else if (k === STORAGE_KEYS.DATABASE_CONFIG) {
-              this.databaseConfig = { ...DEFAULT_DATABASE_CONFIG, ...JSON.parse(v) };
+              const parsed = JSON.parse(v);
+              this.databaseConfig = {
+                ...DEFAULT_DATABASE_CONFIG,
+                ...parsed,
+                external: { ...DEFAULT_DATABASE_CONFIG.external!, ...(parsed.external || {}) }
+              };
               storageService.setLocalCacheOnly(k, v);
               changed = true;
             } else if (k === STORAGE_KEYS.CHAT_SETTINGS) {
@@ -242,6 +288,11 @@ export class DatabaseService {
         storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
         storageService.safeSetItem(STORAGE_KEYS.APP_PROFILE, this.getAppProfile());
         this.saveChatMessages();
+      }
+
+      if (externalDbService.isExternalEnabled(this.databaseConfig)) {
+        await this.syncFromExternalDatabase();
+        this.configureExternalAutoSync();
       }
     } catch {}
   }
@@ -421,9 +472,17 @@ export class DatabaseService {
       const storedDbConfig = localStorage.getItem(STORAGE_KEYS.DATABASE_CONFIG);
       if (storedDbConfig) {
         try {
-          this.databaseConfig = { ...DEFAULT_DATABASE_CONFIG, ...JSON.parse(storedDbConfig) };
+          const parsed = JSON.parse(storedDbConfig);
+          this.databaseConfig = {
+            ...DEFAULT_DATABASE_CONFIG,
+            ...parsed,
+            external: { ...DEFAULT_DATABASE_CONFIG.external!, ...(parsed.external || {}) }
+          };
         } catch {
-          this.databaseConfig = { ...DEFAULT_DATABASE_CONFIG };
+          this.databaseConfig = {
+            ...DEFAULT_DATABASE_CONFIG,
+            external: { ...DEFAULT_DATABASE_CONFIG.external! }
+          };
         }
       }
 
@@ -529,6 +588,7 @@ export class DatabaseService {
     this.logs.unshift(logItem);
     if (this.logs.length > 500) this.logs.pop();
     this.saveLogs();
+    this.dispatchExternalOp('insert_activity_log', logItem);
     console.log(`[${logItem.type}] ${logItem.timestamp} - ${logItem.author}: ${logItem.message}`);
   }
 
@@ -565,8 +625,8 @@ export class DatabaseService {
         status: 'active'
       };
       storageService.safeSetItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
+      this.dispatchExternalOp('upsert_session', this.activeSession);
       this.logActivity('SESSION', `Ouverture de permanence par ${volunteer.name}`);
-      (window as any).OpenMDL?.events.emit('session:opened', this.activeSession);
     } else {
       this.logActivity('INFO', `Connexion de ${volunteer.name} à la séance active`);
     }
@@ -585,16 +645,66 @@ export class DatabaseService {
     );
   }
 
+  public getEffectivePermissions(volunteer?: Volunteer | null): UserPermissions {
+    const target = volunteer === undefined ? this.currentVolunteer : volunteer;
+    return resolveVolunteerPermissions(target);
+  }
+
+  public hasPermission(flag: keyof UserPermissions, volunteer?: Volunteer | null): boolean {
+    const target = volunteer === undefined ? this.currentVolunteer : volunteer;
+    if (!target) return false;
+    return !!this.getEffectivePermissions(target)[flag];
+  }
+
+  public updateUserPermissionsAndPerk(
+    volunteerId: string,
+    updates: {
+      role?: string;
+      isAdmin?: boolean;
+      permissions?: Partial<UserPermissions>;
+      perkPolicy?: VolunteerPerkPolicy;
+    }
+  ): { success: boolean; message: string; user?: Volunteer } {
+    if (this.currentVolunteer && !this.hasPermission('canManageUsers')) {
+      return { success: false, message: 'Accès refusé : permission Paramètres & Comptes requise.' };
+    }
+    const res = volunteerService.updateUserPermissionsAndPerk(
+      this.volunteers,
+      this.currentVolunteer?.id,
+      volunteerId,
+      updates
+    );
+    if (res.success && res.user) {
+      if (this.currentVolunteer && this.currentVolunteer.id === res.user.id) {
+        this.currentVolunteer = res.user;
+      }
+      this.saveVolunteers();
+      this.dispatchExternalOp('upsert_volunteer', res.user);
+      this.logActivity(
+        'INFO',
+        `Permissions & conso mises à jour pour @${res.user.username} (${res.user.name}) par ${this.currentVolunteer?.name || 'Admin'}`
+      );
+      this.notify();
+    }
+    return res;
+  }
+
   public createUser(userData: {
     name: string;
     username: string;
     password: string;
     role?: string;
     isAdmin?: boolean;
+    permissions?: Partial<UserPermissions>;
+    perkPolicy?: VolunteerPerkPolicy;
   }): { success: boolean; message: string; volunteer?: Volunteer } {
+    if (this.currentVolunteer && !this.hasPermission('canManageUsers')) {
+      return { success: false, message: 'Accès refusé : permission Paramètres & Comptes requise.' };
+    }
     const res = volunteerService.createUser(this.volunteers, userData);
     if (res.success && res.volunteer) {
       this.saveVolunteers();
+      this.dispatchExternalOp('upsert_volunteer', res.volunteer);
       this.logActivity('INFO', `Création du compte @${res.volunteer.username} (${res.volunteer.name}) par ${this.currentVolunteer?.name || 'Admin'}`);
       this.notify();
     }
@@ -605,6 +715,7 @@ export class DatabaseService {
     const res = volunteerService.toggleSuspendUser(this.volunteers, this.currentVolunteer?.id, volunteerId);
     if (res.success && res.user) {
       this.saveVolunteers();
+      this.dispatchExternalOp('upsert_volunteer', res.user);
       const action = res.user.isSuspended ? 'suspendu' : 'réactivé';
       this.logActivity('WARNING', `Compte @${res.user.username} (${res.user.name}) ${action} par ${this.currentVolunteer?.name || 'Admin'}`);
       this.notify();
@@ -616,6 +727,7 @@ export class DatabaseService {
     const res = volunteerService.deleteUser(this.volunteers, this.currentVolunteer?.id, volunteerId);
     if (res.success && res.deletedUser) {
       this.saveVolunteers();
+      this.dispatchExternalOp('delete_volunteer', { id: res.deletedUser.id });
       this.logActivity('WARNING', `Suppression du compte @${res.deletedUser.username} (${res.deletedUser.name}) par ${this.currentVolunteer?.name || 'Admin'}`);
       this.notify();
     }
@@ -626,6 +738,7 @@ export class DatabaseService {
     const res = volunteerService.resetUserPassword(this.volunteers, volunteerId, newPass);
     if (res.success && res.user) {
       this.saveVolunteers();
+      this.dispatchExternalOp('upsert_volunteer', res.user);
       this.logActivity('INFO', `Mot de passe réinitialisé pour @${res.user.username} par ${this.currentVolunteer?.name || 'Admin'}`);
       this.notify();
     }
@@ -637,6 +750,7 @@ export class DatabaseService {
     if (res.success && res.user) {
       this.saveVolunteers();
       this.saveSnakeScores();
+      this.dispatchExternalOp('upsert_volunteer', res.user);
       if (this.currentVolunteer?.id === res.user.id) {
         this.currentVolunteer.name = res.user.name;
       }
@@ -656,6 +770,7 @@ export class DatabaseService {
     }
 
     this.saveVolunteers();
+    this.dispatchExternalOp('upsert_volunteer', volunteer);
     this.logActivity('INFO', `Photo de profil mise à jour pour @${volunteer.username}`);
     this.notify();
     return { success: true, message: 'Photo de profil enregistrée avec succès' };
@@ -675,6 +790,7 @@ export class DatabaseService {
     }
 
     this.saveVolunteers();
+    this.dispatchExternalOp('upsert_volunteer', volunteer);
     this.notify();
     return { success: true, message: 'Préférences d\'affichage du chat enregistrées' };
   }
@@ -704,6 +820,7 @@ export class DatabaseService {
       this.activeSession.draftCashCounts = { ...draftCashCounts };
     }
     this.saveActiveSession();
+    this.dispatchExternalOp('upsert_session', this.activeSession);
   }
 
   public clearSessionDraft(): void {
@@ -712,6 +829,7 @@ export class DatabaseService {
     delete this.activeSession.draftPerkProductId;
     delete this.activeSession.draftCashCounts;
     this.saveActiveSession();
+    this.dispatchExternalOp('upsert_session', this.activeSession);
   }
 
   public closeSession(
@@ -749,6 +867,10 @@ export class DatabaseService {
       this.cashFloatSettings.lastRemainingCounts = newLastRemainingCounts;
       this.cashFloatSettings.carriedOverDifferences = newCarriedOverDifferences;
       this.saveCashFloatSettings();
+      this.dispatchExternalOp('upsert_setting', {
+        key: 'cash_float_settings',
+        value: this.cashFloatSettings
+      });
     }
 
     delete this.activeSession.draftNotes;
@@ -759,6 +881,7 @@ export class DatabaseService {
     this.saveSessions();
 
     const closedSession = { ...this.activeSession };
+    this.dispatchExternalOp('upsert_session', closedSession);
     const volName = this.activeSession.volunteerName;
 
     const withdrawalLog = cashWithdrawal
@@ -773,9 +896,9 @@ export class DatabaseService {
 
     this.activeSession = null;
     this.currentVolunteer = null;
-    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
-
-    (window as any).OpenMDL?.events.emit('session:closed', closedSession);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    }
 
     import('./syncService').then(m => {
       const cfg = m.syncService.getConfig();
@@ -816,7 +939,7 @@ export class DatabaseService {
   }
 
   public updateProduct(updated: Product): void {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+    if (this.currentVolunteer && !this.hasPermission('canEditCatalog')) {
       this.logActivity('WARNING', `Accès refusé : tentative de modification du catalogue/tarifs par @${this.currentVolunteer.username}`);
       return;
     }
@@ -825,13 +948,14 @@ export class DatabaseService {
       const old = this.products[index];
       this.products[index] = { ...updated };
       this.saveProducts();
+      this.dispatchExternalOp('upsert_product', this.products[index]);
       this.logActivity('INFO', `Mise à jour produit "${updated.name}" (Prix: ${old.price}€ -> ${updated.price}€, Stock: ${updated.stock})`);
       this.notify();
     }
   }
 
   public addProduct(product: Omit<Product, 'id'>): Product {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+    if (this.currentVolunteer && !this.hasPermission('canEditCatalog')) {
       this.logActivity('WARNING', `Accès refusé : tentative de création de produit par @${this.currentVolunteer.username}`);
       return { ...product, id: 'unauthorized' };
     }
@@ -841,13 +965,14 @@ export class DatabaseService {
     };
     this.products.push(newProduct);
     this.saveProducts();
+    this.dispatchExternalOp('upsert_product', newProduct);
     this.logActivity('INFO', `Création nouveau produit "${newProduct.name}" (Prix: ${newProduct.price}€)`);
     this.notify();
     return newProduct;
   }
 
   public deleteProduct(id: string): void {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+    if (this.currentVolunteer && !this.hasPermission('canEditCatalog')) {
       this.logActivity('WARNING', `Accès refusé : tentative de suppression de produit par @${this.currentVolunteer.username}`);
       return;
     }
@@ -855,13 +980,14 @@ export class DatabaseService {
     if (prod) {
       this.products = this.products.filter(p => p.id !== id);
       this.saveProducts();
+      this.dispatchExternalOp('delete_product', { id });
       this.logActivity('WARNING', `Suppression du produit "${prod.name}"`);
       this.notify();
     }
   }
 
   public applyRestock(productId: string, quantityToAdd: number, newPrice?: number, costPrice?: number): void {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+    if (this.currentVolunteer && !this.hasPermission('canRestock')) {
       this.logActivity('WARNING', `Accès refusé : tentative de restock par @${this.currentVolunteer.username}`);
       return;
     }
@@ -893,6 +1019,11 @@ export class DatabaseService {
     this.restocks.unshift(restockLog);
     this.saveRestocks();
     this.saveProducts();
+    this.dispatchExternalOp('apply_restock', {
+      restockLog,
+      newPrice: newPrice !== undefined && newPrice > 0 ? newPrice : null,
+      costPrice: costPrice !== undefined && costPrice > 0 ? costPrice : null
+    });
 
     this.logActivity('RESTOCK', `Restock +${quantityToAdd} sur "${prod.name}" (Stock: ${previousStock} -> ${prod.stock})`);
     this.notify();
@@ -952,16 +1083,44 @@ export class DatabaseService {
       } else {
         this.activeSession.totalTpe += sale.totalAmount;
       }
-      localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, JSON.stringify(this.activeSession));
+      this.saveActiveSession();
     }
+
+    this.dispatchExternalOp('record_sale', {
+      sale,
+      draftCashCounts: this.activeSession?.draftCashCounts || null
+    });
 
     const itemsSummary = sale.items.map(i => `${i.quantity}x ${i.productName}`).join(', ');
     this.logActivity('SALE', `Vente encaissée (${sale.paymentMethod.toUpperCase()}): ${sale.totalAmount.toFixed(2)}€ [${itemsSummary}]`);
 
-    (window as any).OpenMDL?.events.emit('sale:completed', sale);
-
     this.notify();
     return sale;
+  }
+
+  public cancelSale(saleId: string, restoreStock = true): { success: boolean; message: string } {
+    const sale = this.sales.find(s => s.id === saleId);
+    if (!sale) return { success: false, message: 'Vente introuvable' };
+    if (sale.isCancelled) return { success: false, message: 'Vente déjà annulée' };
+
+    if (restoreStock && sale.items) {
+      for (const it of sale.items) {
+        const prod = this.products.find(p => p.id === it.productId);
+        if (prod) {
+          prod.stock += it.quantity;
+        }
+      }
+      this.saveProducts();
+    }
+
+    const cancelledAt = new Date().toISOString();
+    sale.isCancelled = true;
+    sale.cancelledAt = cancelledAt;
+    this.saveSales();
+    this.dispatchExternalOp('cancel_sale', { saleId, restoreStock, cancelledAt });
+    this.logActivity('WARNING', `Annulation vente ${saleId} (${sale.totalAmount.toFixed(2)}€)`);
+    this.notify();
+    return { success: true, message: 'Vente annulée avec succès' };
   }
 
   public getSales(): Sale[] {
@@ -980,6 +1139,10 @@ export class DatabaseService {
   public updatePerkSettings(updates: Partial<PerkSettings>): void {
     this.perkSettings = { ...this.perkSettings, ...updates };
     this.savePerkSettings();
+    this.dispatchExternalOp('upsert_setting', {
+      key: 'perk_settings',
+      value: this.perkSettings
+    });
     const statusTxt = this.perkSettings.enabled ? 'Activée' : 'Désactivée';
     const ruleTxt = this.perkSettings.rule === 'items_sold'
       ? `${this.perkSettings.threshold} articles vendus`
@@ -1023,17 +1186,38 @@ export class DatabaseService {
     required: number;
     rule: PerkEligibilityRule;
     enabled: boolean;
+    policyMode: VolunteerPerkMode;
+    maxPerSession: number;
+    claimedInSession: number;
+    remainingInSession: number;
+    everyNSessions: number;
+    sessionsUntilEligible: number;
   } {
+    const resolvedSessionId = sessionId || this.activeSession?.id;
+    const volunteer =
+      this.volunteers.find(v => v.id === volunteerId) ||
+      (this.currentVolunteer?.id === volunteerId ? this.currentVolunteer : null);
+    const allSessions = [
+      ...this.sessions,
+      ...(this.activeSession ? [this.activeSession] : [])
+    ];
     return perkService.canClaimVolunteerPerk(
       this.perkSettings,
       this.sales,
       this.volunteerPerks,
       volunteerId,
-      sessionId || this.activeSession?.id
+      resolvedSessionId,
+      volunteer,
+      allSessions
     );
   }
 
   public claimVolunteerPerk(volunteerId: string, productId: string, sessionId?: string): { success: boolean; message: string; perk?: VolunteerPerk } {
+    const resolvedSessionId = sessionId || this.activeSession?.id;
+    const allSessions = [
+      ...this.sessions,
+      ...(this.activeSession ? [this.activeSession] : [])
+    ];
     const res = perkService.claimVolunteerPerk(
       this.perkSettings,
       this.sales,
@@ -1043,16 +1227,14 @@ export class DatabaseService {
       this.currentVolunteer,
       volunteerId,
       productId,
-      sessionId || this.activeSession?.id
+      resolvedSessionId,
+      allSessions
     );
     if (res.success && res.perk) {
       this.saveProducts();
       this.saveVolunteerPerks();
+      this.dispatchExternalOp('claim_perk', { perk: res.perk });
       this.logActivity('INFO', `Conso offerte bénévole : "${res.perk.productName}" attribuée à ${res.perk.volunteerName} (Coût foyer : ${res.perk.costPrice.toFixed(2)}€)`);
-      (window as any).OpenMDL?.events.emit('perk:claimed', {
-        volunteerId: res.perk.volunteerId,
-        productId: res.perk.productId
-      });
       this.notify();
     }
     return res;
@@ -1087,6 +1269,10 @@ export class DatabaseService {
       updatedAt: new Date().toISOString()
     };
     this.saveCashFloatSettings();
+    this.dispatchExternalOp('upsert_setting', {
+      key: 'cash_float_settings',
+      value: this.cashFloatSettings
+    });
     const baseTotal = this.calculateBaseCashFloatTotal();
     this.logActivity('INFO', `Paramètres du fond de caisse de référence mis à jour (Base: ${baseTotal.toFixed(2)} €)`);
     this.notify();
@@ -1097,6 +1283,10 @@ export class DatabaseService {
   }
 
   public visaCashWithdrawal(sessionId: string, visaBy: string, visaNotes?: string): boolean {
+    if (this.currentVolunteer && !this.hasPermission('canVisaDecaisse')) {
+      this.logActivity('SECURITY', `Tentative non autorisée de visa de décaisse par @${this.currentVolunteer.username}`);
+      return false;
+    }
     const session = this.sessions.find(s => s.id === sessionId);
     if (!session || !session.cashWithdrawal) return false;
 
@@ -1106,6 +1296,12 @@ export class DatabaseService {
     session.cashWithdrawal.visaNotes = visaNotes || '';
 
     this.saveSessions();
+    this.dispatchExternalOp('visa_session', {
+      sessionId,
+      visaBy,
+      visaDate,
+      visaNotes: visaNotes || ''
+    });
     this.logActivity('INFO', `Visa de remise d'espèces validé par ${visaBy} pour la séance de ${session.volunteerName}`);
     import('./syncService')
       .then(m => m.syncService.pushSessionVisa(sessionId, visaBy, visaDate, visaNotes || ''))
@@ -1123,6 +1319,12 @@ export class DatabaseService {
     session.cashWithdrawal.visaNotes = visaNotes;
 
     this.saveSessions();
+    this.dispatchExternalOp('visa_session', {
+      sessionId,
+      visaBy,
+      visaDate: session.cashWithdrawal.visaDate,
+      visaNotes
+    });
     this.logActivity('INFO', `Visa LAN reçu de ${visaBy} pour la séance de ${session.volunteerName}`);
     this.notify();
     return true;
@@ -1138,13 +1340,17 @@ export class DatabaseService {
   }
 
   public updateTpeSettings(settings: Partial<TpeSettings>): void {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+    if (this.currentVolunteer && !this.hasPermission('canViewTpe')) {
       console.warn('Action refusée: modification TPE réservée aux administrateurs.');
       this.logActivity('SECURITY', `Tentative non autorisée de modification TPE par ${this.currentVolunteer.name}`);
       return;
     }
     this.tpeSettings = { ...this.tpeSettings, ...settings };
     this.saveTpeSettings();
+    this.dispatchExternalOp('upsert_setting', {
+      key: 'tpe_settings',
+      value: this.tpeSettings
+    });
     this.notify();
   }
 
@@ -1157,7 +1363,7 @@ export class DatabaseService {
     readerId?: string;
     readerModel?: 'SumUp Solo' | 'SumUp Air';
   }): void {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+    if (this.currentVolunteer && !this.hasPermission('canViewTpe')) {
       console.warn('Action refusée: connexion TPE réservée aux administrateurs.');
       this.logActivity('SECURITY', `Tentative non autorisée de connexion TPE par ${this.currentVolunteer.name}`);
       return;
@@ -1176,12 +1382,16 @@ export class DatabaseService {
       batteryLevel: 98
     };
     this.saveTpeSettings();
+    this.dispatchExternalOp('upsert_setting', {
+      key: 'tpe_settings',
+      value: this.tpeSettings
+    });
     this.logActivity('INFO', `Terminal ${this.tpeSettings.readerModel} configuré (${this.tpeSettings.merchantName})`);
     this.notify();
   }
 
   public disconnectTpe(): void {
-    if (this.currentVolunteer && !this.currentVolunteer.isAdmin) {
+    if (this.currentVolunteer && !this.hasPermission('canViewTpe')) {
       console.warn('Action refusée: déconnexion TPE réservée aux administrateurs.');
       this.logActivity('SECURITY', `Tentative non autorisée de déconnexion TPE par ${this.currentVolunteer.name}`);
       return;
@@ -1190,6 +1400,10 @@ export class DatabaseService {
     this.tpeSettings.apiKey = '';
     this.tpeSettings.merchantCode = '';
     this.saveTpeSettings();
+    this.dispatchExternalOp('upsert_setting', {
+      key: 'tpe_settings',
+      value: this.tpeSettings
+    });
     this.logActivity('WARNING', `Terminal ${this.tpeSettings.readerName} déconnecté`);
     this.notify();
   }
@@ -1215,6 +1429,7 @@ export class DatabaseService {
     this.tpeLogs.unshift(log);
     if (this.tpeLogs.length > 200) this.tpeLogs.pop();
     this.saveTpeLogs();
+    this.dispatchExternalOp('insert_tpe_log', log);
     this.notify();
     return log;
   }
@@ -1264,6 +1479,7 @@ export class DatabaseService {
     this.snakeScores.sort((a, b) => b.score - a.score);
     if (this.snakeScores.length > 50) this.snakeScores.pop();
     this.saveSnakeScores();
+    this.dispatchExternalOp('insert_pacman_score', entry);
     this.notify();
     return entry;
   }
@@ -1279,6 +1495,7 @@ export class DatabaseService {
   public clearPacmanScores(): void {
     this.snakeScores = [];
     this.saveSnakeScores();
+    this.dispatchExternalOp('clear_pacman_scores', {});
     this.notify();
   }
 
@@ -1321,7 +1538,12 @@ export class DatabaseService {
     this.tpeLogs = data.tpeLogs;
     this.saveTpeLogs();
 
-    localStorage.setItem('OPENMDL_DEMO_ACTIVE', 'true');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('OPENMDL_DEMO_ACTIVE', 'true');
+    }
+    if (!this.suppressExternalSync && externalDbService.isExternalEnabled(this.databaseConfig)) {
+      void this.migrateLocalToExternalDatabase();
+    }
     this.notify();
   }
 
@@ -1333,9 +1555,11 @@ export class DatabaseService {
     this.tpeLogs = [];
     this.logs = [];
     this.activeSession = null;
-    localStorage.removeItem('OPENMDL_DEMO_ACTIVE');
-    localStorage.removeItem('OPENMDL_SEED_V');
-    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('OPENMDL_DEMO_ACTIVE');
+      localStorage.removeItem('OPENMDL_SEED_V');
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    }
     this.saveSales();
     this.saveSessions();
     this.saveRestocks();
@@ -1350,6 +1574,12 @@ export class DatabaseService {
       this.volunteers = JSON.parse(JSON.stringify(INITIAL_VOLUNTEERS));
       this.saveVolunteers();
       this.currentVolunteer = this.volunteers[0];
+    }
+    this.dispatchExternalOp('reset_operational_data', { resetProducts, resetVolunteers });
+    if (resetVolunteers) {
+      for (const v of this.volunteers) {
+        this.dispatchExternalOp('upsert_volunteer', v);
+      }
     }
     this.notify();
   }
@@ -1458,6 +1688,9 @@ export class DatabaseService {
       this.cashFloatSettings = { ...DEFAULT_CASH_FLOAT_SETTINGS, ...data.cashFloatSettings };
       this.saveCashFloatSettings();
     }
+    if (!this.suppressExternalSync && externalDbService.isExternalEnabled(this.databaseConfig)) {
+      void this.migrateLocalToExternalDatabase();
+    }
     this.notify();
   }
 
@@ -1495,6 +1728,10 @@ export class DatabaseService {
       ...settings
     };
     storageService.safeSetItem(STORAGE_KEYS.CHAT_SETTINGS, JSON.stringify(this.chatSettings));
+    this.dispatchExternalOp('upsert_setting', {
+      key: 'chat_settings',
+      value: this.chatSettings
+    });
     if (this.chatSettings.retentionDays > 0) {
       this.purgeExpiredChatMessages();
     }
@@ -1525,6 +1762,7 @@ export class DatabaseService {
 
     this.chatChannels.push(newChan);
     this.saveChatChannels();
+    this.dispatchExternalOp('upsert_chat_channel', newChan);
     chatService.broadcastChatUpdate();
     this.notify();
     return { success: true, message: `Groupe "${cleanName}" créé`, channel: newChan };
@@ -1558,6 +1796,7 @@ export class DatabaseService {
       };
       this.chatChannels.push(channel);
       this.saveChatChannels();
+      this.dispatchExternalOp('upsert_chat_channel', channel);
       chatService.broadcastChatUpdate();
       this.notify();
     }
@@ -1578,20 +1817,350 @@ export class DatabaseService {
   }
 
   public getDatabaseConfig(): DatabaseConnectionConfig {
-    return { ...this.databaseConfig };
+    return {
+      ...this.databaseConfig,
+      external: this.databaseConfig.external ? { ...this.databaseConfig.external } : undefined
+    };
   }
 
   public updateDatabaseConfig(config: Partial<DatabaseConnectionConfig>): { success: boolean; message: string } {
+    const nextEngine = config.engine ?? this.databaseConfig.engine ?? 'sqlite';
+    const nextExternal: ExternalDatabaseConfig = {
+      ...DEFAULT_DATABASE_CONFIG.external!,
+      ...(this.databaseConfig.external || {}),
+      ...(config.external || {})
+    };
+
     this.databaseConfig = {
       ...this.databaseConfig,
       ...config,
-      engine: 'sqlite',
-      status: config.status || 'connected',
-      lastPing: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      engine: nextEngine,
+      external: nextExternal,
+      status: config.status || (nextEngine === 'sqlite' ? 'connected' : this.databaseConfig.status || 'connected'),
+      lastPing: config.lastPing || new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      format: nextEngine === 'mysql' ? 'MySQL / MariaDB (Externe + Cache SQLite)' : 'SQLite (.db / .mdlb)'
+    };
+    storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
+    this.configureExternalAutoSync();
+    this.notify();
+    return {
+      success: true,
+      message: nextEngine === 'mysql'
+        ? 'Configuration MySQL / MariaDB enregistrée (cache SQLite conservé).'
+        : 'Moteur SQLite embarqué activé.'
+    };
+  }
+
+  public configureExternalAutoSync(): void {
+    const ext = this.databaseConfig.external;
+    const hasEndpoint = Boolean(ext && ((ext.url || '').trim() || (ext.host || '').trim()));
+    if (externalDbService.isExternalEnabled(this.databaseConfig) && ext && hasEndpoint) {
+      const intervalSec = Number(ext.syncIntervalSec) || 15;
+      externalDbService.startAutoSync(intervalSec, async () => {
+        await this.syncFromExternalDatabase();
+      });
+    } else {
+      externalDbService.stopAutoSync();
+    }
+  }
+
+  public async testExternalDatabase(external?: ExternalDatabaseConfig): Promise<{
+    success: boolean;
+    serverVersion: string;
+    message: string;
+  }> {
+    const target = external || this.databaseConfig.external || DEFAULT_DATABASE_CONFIG.external!;
+    const res = await externalDbService.testConnection(target);
+    if (this.databaseConfig.engine === 'mysql') {
+      this.databaseConfig = {
+        ...this.databaseConfig,
+        status: res.success ? 'connected' : 'error',
+        serverVersion: res.serverVersion || this.databaseConfig.serverVersion,
+        lastError: res.success ? undefined : res.message,
+        lastPing: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      };
+      storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
+    }
+    return res;
+  }
+
+  private buildExternalSnapshotPayload(): Record<string, unknown> {
+    return {
+      ...this.exportData(),
+      volunteerPerks: this.volunteerPerks,
+      tpeLogs: this.tpeLogs,
+      snakeScores: this.snakeScores,
+      activeSession: this.activeSession
+    };
+  }
+
+  public applyExternalSnapshot(snapshot: any): { applied: boolean; emptyRemote: boolean } {
+    if (!snapshot || typeof snapshot !== 'object') {
+      return { applied: false, emptyRemote: true };
+    }
+
+    const remoteProducts = Array.isArray(snapshot.products) ? snapshot.products : [];
+    const remoteSales = Array.isArray(snapshot.sales) ? snapshot.sales : [];
+    const remoteSessions = Array.isArray(snapshot.sessions) ? snapshot.sessions : [];
+    const remoteVolunteers = Array.isArray(snapshot.volunteers) ? snapshot.volunteers : [];
+
+    // Garde anti-wipe : ne jamais écraser le cache SQLite local si la base MySQL distante est encore vierge
+    if (
+      remoteProducts.length === 0 &&
+      remoteSales.length === 0 &&
+      remoteSessions.length === 0 &&
+      remoteVolunteers.length === 0
+    ) {
+      return { applied: false, emptyRemote: true };
+    }
+
+    const beforeSig = JSON.stringify({
+      h: this.getDatabaseHash(),
+      m: this.chatMessages.length,
+      c: this.chatChannels.length,
+      p: this.volunteerPerks.length,
+      t: this.tpeLogs.length,
+      sc: this.snakeScores.length
+    });
+
+    this.suppressExternalSync = true;
+    try {
+      if (Array.isArray(snapshot.products)) {
+        this.products = snapshot.products;
+        this.saveProducts();
+      }
+      if (Array.isArray(snapshot.sales)) {
+        this.sales = snapshot.sales;
+        this.saveSales();
+      }
+      if (Array.isArray(snapshot.sessions)) {
+        this.sessions = snapshot.sessions.filter((s: Session) => s.status === 'closed');
+        const matchingActive = this.activeSession
+          ? snapshot.sessions.find((s: Session) => s.id === this.activeSession!.id)
+          : null;
+        if (matchingActive && matchingActive.status === 'active') {
+          this.activeSession = {
+            ...this.activeSession!,
+            ...matchingActive,
+            draftNotes: this.activeSession!.draftNotes ?? matchingActive.draftNotes,
+            draftPerkProductId: this.activeSession!.draftPerkProductId ?? matchingActive.draftPerkProductId
+          };
+          this.saveActiveSession();
+        }
+        this.saveSessions();
+      }
+      if (Array.isArray(snapshot.volunteers)) {
+        this.volunteers = snapshot.volunteers;
+        if (this.currentVolunteer) {
+          this.currentVolunteer = this.volunteers.find(v => v.id === this.currentVolunteer!.id) || this.currentVolunteer;
+        }
+        this.saveVolunteers();
+      }
+      if (Array.isArray(snapshot.restocks)) {
+        this.restocks = snapshot.restocks;
+        this.saveRestocks();
+      }
+      if (Array.isArray(snapshot.volunteerPerks)) {
+        this.volunteerPerks = snapshot.volunteerPerks;
+        this.saveVolunteerPerks();
+      }
+      if (Array.isArray(snapshot.logs)) {
+        this.logs = snapshot.logs;
+        this.saveLogs();
+      }
+      if (Array.isArray(snapshot.tpeLogs)) {
+        this.tpeLogs = snapshot.tpeLogs;
+        this.saveTpeLogs();
+      }
+      if (Array.isArray(snapshot.snakeScores)) {
+        this.snakeScores = snapshot.snakeScores;
+        this.saveSnakeScores();
+      }
+      if (Array.isArray(snapshot.chatChannels)) {
+        this.chatChannels = snapshot.chatChannels;
+        if (!this.chatChannels.some(c => c.id === 'all')) {
+          this.chatChannels.unshift({
+            id: 'all',
+            name: 'Général (Tous)',
+            description: 'Canal d\'échange commun pour tous les bénévoles et membres connectés',
+            isPrivate: false,
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+          });
+        }
+        if (!this.chatChannels.some(c => c.id === 'admins')) {
+          this.chatChannels.push({
+            id: 'admins',
+            name: 'Admins & Vie Scolaire',
+            description: 'Canal privé sécurisé réservé aux membres du bureau, administrateurs et vie scolaire',
+            isPrivate: true,
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+          });
+        }
+        this.saveChatChannels();
+      }
+      if (Array.isArray(snapshot.chatMessages)) {
+        this.chatMessages = snapshot.chatMessages;
+        this.saveChatMessages();
+      }
+      if (snapshot.perkSettings) {
+        this.perkSettings = { ...DEFAULT_PERK_SETTINGS, ...snapshot.perkSettings };
+        this.savePerkSettings();
+      }
+      if (snapshot.cashFloatSettings) {
+        this.cashFloatSettings = { ...DEFAULT_CASH_FLOAT_SETTINGS, ...snapshot.cashFloatSettings };
+        this.saveCashFloatSettings();
+      }
+      if (snapshot.tpeSettings) {
+        this.tpeSettings = { ...DEFAULT_TPE_SETTINGS, ...snapshot.tpeSettings };
+        this.saveTpeSettings();
+      }
+      if (snapshot.chatSettings) {
+        this.chatSettings = { ...DEFAULT_CHAT_SETTINGS, ...snapshot.chatSettings };
+        storageService.safeSetItem(STORAGE_KEYS.CHAT_SETTINGS, JSON.stringify(this.chatSettings));
+      }
+    } finally {
+      this.suppressExternalSync = false;
+    }
+
+    const afterSig = JSON.stringify({
+      h: this.getDatabaseHash(),
+      m: this.chatMessages.length,
+      c: this.chatChannels.length,
+      p: this.volunteerPerks.length,
+      t: this.tpeLogs.length,
+      sc: this.snakeScores.length
+    });
+
+    if (beforeSig !== afterSig) {
+      this.notify();
+      return { applied: true, emptyRemote: false };
+    }
+    return { applied: false, emptyRemote: false };
+  }
+
+  public async syncFromExternalDatabase(): Promise<{
+    success: boolean;
+    emptyRemote?: boolean;
+    pendingCount?: number;
+    message: string;
+  }> {
+    if (!externalDbService.isExternalEnabled(this.databaseConfig) || !this.databaseConfig.external) {
+      return { success: false, message: 'Moteur externe MySQL/MariaDB non activé.' };
+    }
+
+    const prevStatus = this.databaseConfig.status;
+    const prevPending = this.databaseConfig.pendingOpsCount || 0;
+    const prevError = this.databaseConfig.lastError;
+    const prevVersion = this.databaseConfig.serverVersion;
+
+    try {
+      const snapshot = await externalDbService.pullSnapshot(this.databaseConfig.external);
+      const { applied, emptyRemote } = this.applyExternalSnapshot(snapshot);
+      const nextVersion = snapshot.serverVersion || this.databaseConfig.serverVersion;
+
+      this.databaseConfig = {
+        ...this.databaseConfig,
+        status: 'connected',
+        serverVersion: nextVersion,
+        pendingOpsCount: 0,
+        lastError: undefined,
+        lastPing: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      };
+      storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
+
+      const metaChanged =
+        prevStatus !== 'connected' ||
+        prevPending !== 0 ||
+        prevError !== undefined ||
+        prevVersion !== nextVersion;
+
+      if (!applied && metaChanged) {
+        this.notify();
+      }
+
+      if (emptyRemote) {
+        return {
+          success: true,
+          emptyRemote: true,
+          pendingCount: 0,
+          message: 'Base MySQL/MariaDB connectée (vierge : cache SQLite local conservé).'
+        };
+      }
+      return {
+        success: true,
+        emptyRemote: false,
+        pendingCount: 0,
+        message: applied
+          ? 'Données synchronisées depuis MySQL/MariaDB vers le cache SQLite.'
+          : 'Base MySQL/MariaDB déjà à jour.'
+      };
+    } catch (err: any) {
+      const errMsg = typeof err === 'string' ? err : err?.message || String(err);
+      const pending = await externalDbService.getPendingCount();
+      this.databaseConfig = {
+        ...this.databaseConfig,
+        status: 'offline_cache',
+        pendingOpsCount: pending,
+        lastError: errMsg
+      };
+      storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
+
+      const metaChanged =
+        prevStatus !== 'offline_cache' ||
+        prevPending !== pending ||
+        prevError !== errMsg;
+
+      if (metaChanged) {
+        this.notify();
+      }
+
+      return {
+        success: false,
+        pendingCount: pending,
+        message: `Mode cache SQLite hors-ligne actif (${pending} opération(s) en attente) : ${errMsg}`
+      };
+    }
+  }
+
+  public async clearPendingExternalSyncOps(): Promise<void> {
+    await externalDbService.clearPendingOps();
+    this.databaseConfig = {
+      ...this.databaseConfig,
+      pendingOpsCount: 0,
+      lastError: undefined
     };
     storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
     this.notify();
-    return { success: true, message: `Base SQLite embarquée vérifiée et synchronisée.` };
+  }
+
+  public async migrateLocalToExternalDatabase(external?: ExternalDatabaseConfig): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const target = external || this.databaseConfig.external;
+    if (!target) {
+      return { success: false, message: 'Configuration MySQL/MariaDB manquante.' };
+    }
+
+    try {
+      const res = await externalDbService.pushSnapshot(target, this.buildExternalSnapshotPayload());
+      this.databaseConfig = {
+        ...this.databaseConfig,
+        status: 'connected',
+        pendingOpsCount: 0,
+        lastError: undefined,
+        lastPing: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      };
+      storageService.safeSetItem(STORAGE_KEYS.DATABASE_CONFIG, JSON.stringify(this.databaseConfig));
+      this.logActivity('INFO', `Migration SQLite -> MySQL/MariaDB réussie (${res.message})`);
+      this.notify();
+      return { success: res.success, message: res.message };
+    } catch (err: any) {
+      const errMsg = typeof err === 'string' ? err : err?.message || String(err);
+      return { success: false, message: `Échec migration MySQL/MariaDB : ${errMsg}` };
+    }
   }
 
   public getChatMessages(channelId: string): ChatMessage[] {
@@ -1633,6 +2202,7 @@ export class DatabaseService {
 
     this.chatMessages.push(newMsg);
     this.saveChatMessages();
+    this.dispatchExternalOp('insert_chat_message', newMsg);
     this.markChannelAsRead(channelId);
     chatService.broadcastChatUpdate();
     import('./syncService')
@@ -1653,9 +2223,14 @@ export class DatabaseService {
     );
 
     if (addedCount > 0) {
+      const existingIds = new Set(this.chatMessages.map(m => m.id));
+      const newOnes = mergedMessages.filter(m => !existingIds.has(m.id));
       this.chatMessages = mergedMessages;
       this.purgeExpiredChatMessages();
       this.saveChatMessages();
+      if (newOnes.length > 0) {
+        this.dispatchExternalOp('insert_chat_message', newOnes);
+      }
       this.notify();
     }
 
@@ -1667,6 +2242,10 @@ export class DatabaseService {
     if (purged > 0) {
       this.chatMessages = remaining;
       this.saveChatMessages();
+      if (this.chatSettings.retentionDays > 0) {
+        const cutoffIso = new Date(Date.now() - this.chatSettings.retentionDays * 24 * 60 * 60 * 1000).toISOString();
+        this.dispatchExternalOp('purge_chat_messages', { cutoffIso });
+      }
     }
     return purged;
   }
@@ -1700,6 +2279,7 @@ export class DatabaseService {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
     }
+    this.dispatchExternalOp('reset_operational_data', { resetProducts: true, resetVolunteers: false });
     this.logActivity('SECURITY', 'Réinitialisation complète des données effectuée');
     this.notify();
   }

@@ -4,6 +4,7 @@ import type {
   ChatSettings,
   Volunteer
 } from '../../types';
+import { resolveVolunteerPermissions } from '../../types/index.ts';
 import {
   computeCrc32Hex,
   STORAGE_KEYS
@@ -54,7 +55,13 @@ export class ChatService {
     forVolunteer?: Volunteer | null
   ): ChatChannel[] {
     const user = forVolunteer || currentVolunteer;
-    const isSpecialAccess = user?.isAdmin || appProfile === 'visco';
+    const perms = user ? resolveVolunteerPermissions(user) : null;
+    const isSpecialAccess = !!(
+      user?.isAdmin ||
+      perms?.canViewDecaisse ||
+      perms?.canManageUsers ||
+      appProfile === 'visco'
+    );
 
     return chatChannels.filter(c => {
       if (!c.isPrivate) return true;

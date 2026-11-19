@@ -1,5 +1,3 @@
-import type { AddonPackage } from '../types/addon';
-
 export interface DiskBackupInfo {
   fileName: string;
   path: string;
@@ -8,66 +6,13 @@ export interface DiskBackupInfo {
   modifiedSecs: number;
 }
 
-// Magic signatures:
-// "MDLX" = [0x4D, 0x44, 0x4C, 0x58]
+// Magic signature:
 // "MDLB" = [0x4D, 0x44, 0x4C, 0x42]
-const MDLX_MAGIC = [0x4d, 0x44, 0x4c, 0x58];
 const MDLB_MAGIC = [0x4d, 0x44, 0x4c, 0x42];
 
 function hasMagic(bytes: Uint8Array, magic: number[]): boolean {
   if (bytes.length < magic.length) return false;
   return magic.every((byte, i) => bytes[i] === byte);
-}
-
-/**
- * Compresse et encode un AddonPackage au format binaire OpenMDL Extension (.mdlx).
- */
-export async function packAddonBinary(pkg: AddonPackage): Promise<Uint8Array> {
-  const jsonStr = JSON.stringify(pkg);
-
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const bytes = await invoke<number[]>('pack_addon_binary', { addonJson: jsonStr });
-    return new Uint8Array(bytes);
-  } catch (err) {
-    console.warn('Tauri non disponible pour pack_addon_binary, fallback UTF-8 :', err);
-    return new TextEncoder().encode(jsonStr);
-  }
-}
-
-/**
- * Décode un fichier AddonPackage depuis un binaire .mdlx ou du JSON textuel (.json).
- */
-export async function unpackAddonBinary(input: ArrayBuffer | Uint8Array | string): Promise<AddonPackage> {
-  // Cas chaîne JSON directe
-  if (typeof input === 'string') {
-    const parsed = JSON.parse(input);
-    if (!parsed.manifest || !parsed.manifest.id) {
-      throw new Error('Format d\'addon invalide (manifest manquant).');
-    }
-    return parsed as AddonPackage;
-  }
-
-  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-
-  // Si format binaire OpenMDL (MDLX)
-  if (hasMagic(bytes, MDLX_MAGIC)) {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const jsonStr = await invoke<string>('unpack_addon_binary', { bytes: Array.from(bytes) });
-    const parsed = JSON.parse(jsonStr);
-    if (!parsed.manifest || !parsed.manifest.id) {
-      throw new Error('Format de package addon corrompu ou incomplet.');
-    }
-    return parsed as AddonPackage;
-  }
-
-  // Fallback : tentative de lecture texte UTF-8 si fichier JSON renommé ou import brut
-  const text = new TextDecoder().decode(bytes);
-  const parsed = JSON.parse(text);
-  if (!parsed.manifest || !parsed.manifest.id) {
-    throw new Error('Fichier non reconnu comme un addon OpenMDL valide (.mdlx ou .json).');
-  }
-  return parsed as AddonPackage;
 }
 
 /**

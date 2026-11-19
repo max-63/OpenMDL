@@ -58,6 +58,17 @@ impl SqliteStorage {
             [],
         ).map_err(|e| format!("Erreur création index chat_messages: {}", e))?;
 
+        // File d'attente hors-ligne persistante pour rejouer de manière atomique et idempotente les écritures vers MySQL/MariaDB
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pending_sync_ops (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        ).map_err(|e| format!("Erreur création table pending_sync_ops: {}", e))?;
+
         Ok(())
     }
 
@@ -232,5 +243,55 @@ impl SqliteStorage {
 
         tx.commit().map_err(|e| e.to_string())?;
         Ok(adopted_count)
+    }
+
+    pub fn enqueue_sync_op(&self, op_type: &str, payload: &str) -> Result<i64, String> {
+        let conn = self.connect()?;
+        conn.execute(
+            "INSERT INTO pending_sync_ops (op_type, payload) VALUES (?1, ?2)",
+            params![op_type, payload],
+        )
+        .map_err(|e| format!("Erreur enqueue_sync_op SQLite: {}", e))?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn get_pending_sync_ops(&self) -> Result<Vec<(i64, String, String)>, String> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare("SELECT seq, op_type, payload FROM pending_sync_ops ORDER BY seq ASC")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|e| e.to_string())?;
+
+        let mut list = Vec::new();
+        for r in rows {
+            if let Ok(item) = r {
+                list.push(item);
+            }
+        }
+        Ok(list)
+    }
+
+    pub fn delete_sync_op(&self, seq: i64) -> Result<(), String> {
+        let conn = self.connect()?;
+        conn.execute("DELETE FROM pending_sync_ops WHERE seq = ?1", params![seq])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn count_pending_sync_ops(&self) -> Result<usize, String> {
+        let conn = self.connect()?;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pending_sync_ops", [], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        Ok(count.max(0) as usize)
+    }
+
+    pub fn clear_pending_sync_ops(&self) -> Result<(), String> {
+        let conn = self.connect()?;
+        conn.execute("DELETE FROM pending_sync_ops", [])
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 }

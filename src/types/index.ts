@@ -51,6 +51,166 @@ export interface VolunteerThemeSettings {
   customChatBgUrl?: string; // Image de fond optionnelle en base64
 }
 
+export interface UserPermissions {
+  canSell: boolean;
+  canViewCatalog: boolean;
+  canEditCatalog: boolean;
+  canRestock: boolean;
+  canViewStats: boolean;
+  canViewTpe: boolean;
+  canViewDecaisse: boolean;
+  canVisaDecaisse: boolean;
+  canManageUsers: boolean;
+  canAccessSystem: boolean;
+}
+
+export interface PermissionFlagMeta {
+  key: keyof UserPermissions;
+  label: string;
+  shortLabel: string;
+  description: string;
+  category: 'caisse' | 'gestion' | 'admin';
+}
+
+export const PERMISSION_FLAGS_META: PermissionFlagMeta[] = [
+  { key: 'canSell', label: 'Caisse & Encaissement', shortLabel: 'Caisse', description: 'Ouvrir une séance, encaisser et prendre sa conso', category: 'caisse' },
+  { key: 'canViewCatalog', label: 'Voir le Catalogue', shortLabel: 'Catalogue', description: 'Consulter la liste des produits, prix et stocks', category: 'caisse' },
+  { key: 'canEditCatalog', label: 'Modifier le Catalogue', shortLabel: 'Éditer Cat.', description: 'Ajouter, modifier ou supprimer des produits', category: 'gestion' },
+  { key: 'canRestock', label: 'Réapprovisionnement', shortLabel: 'Restock', description: 'Ajouter du stock et modifier les prix à l’achat', category: 'gestion' },
+  { key: 'canViewStats', label: 'Rapports & Ventes', shortLabel: 'Rapports', description: 'Consulter le bilan financier, exports CSV et graphiques', category: 'gestion' },
+  { key: 'canViewTpe', label: 'Gestion TPE (SumUp)', shortLabel: 'TPE', description: 'Voir et configurer le terminal de paiement carte', category: 'gestion' },
+  { key: 'canViewDecaisse', label: 'Voir la Décaisse', shortLabel: 'Décaisse', description: 'Accéder à l’onglet de suivi des décaissements', category: 'admin' },
+  { key: 'canVisaDecaisse', label: 'Viser la Décaisse', shortLabel: 'Visa Décaisse', description: 'Valider / viser la remise en banque (Surveillants / Admin)', category: 'admin' },
+  { key: 'canManageUsers', label: 'Paramètres & Comptes', shortLabel: 'Paramètres', description: 'Créer des utilisateurs, régler les permissions et règles globales', category: 'admin' },
+  { key: 'canAccessSystem', label: 'Système Technique', shortLabel: 'Système', description: 'Accès BDD externe MySQL/SQLite, serveur LAN et maintenance', category: 'admin' }
+];
+
+export type VolunteerPerkMode = 'inherit' | 'none' | 'custom';
+
+export interface VolunteerPerkPolicy {
+  mode: VolunteerPerkMode;
+  quantity: number;
+  everyNSessions: number;
+  ignoreThreshold?: boolean;
+}
+
+export const DEFAULT_VOLUNTEER_PERK_POLICY: VolunteerPerkPolicy = {
+  mode: 'inherit',
+  quantity: 1,
+  everyNSessions: 1,
+  ignoreThreshold: false
+};
+
+export function getDefaultPermissionsForRole(role: string, isAdmin?: boolean): UserPermissions {
+  const normalized = (role || '').trim().toLowerCase();
+  if (isAdmin || normalized.includes('admin')) {
+    return {
+      canSell: true,
+      canViewCatalog: true,
+      canEditCatalog: true,
+      canRestock: true,
+      canViewStats: true,
+      canViewTpe: true,
+      canViewDecaisse: true,
+      canVisaDecaisse: true,
+      canManageUsers: true,
+      canAccessSystem: true
+    };
+  }
+  if (
+    normalized.includes('surveillant') ||
+    normalized.includes('vie scolaire') ||
+    normalized.includes('cpe') ||
+    normalized.includes('visco')
+  ) {
+    return {
+      canSell: true,
+      canViewCatalog: true,
+      canEditCatalog: false,
+      canRestock: false,
+      canViewStats: true,
+      canViewTpe: false,
+      canViewDecaisse: true,
+      canVisaDecaisse: true,
+      canManageUsers: false,
+      canAccessSystem: false
+    };
+  }
+  if (
+    normalized.includes('bureau') ||
+    normalized.includes('trésor') ||
+    normalized.includes('tresor') ||
+    normalized.includes('président') ||
+    normalized.includes('president') ||
+    normalized.includes('secrét') ||
+    normalized.includes('secret') ||
+    normalized.includes('délégué') ||
+    normalized.includes('delegue') ||
+    normalized.includes('cvl') ||
+    normalized === 'mdl'
+  ) {
+    return {
+      canSell: true,
+      canViewCatalog: true,
+      canEditCatalog: true,
+      canRestock: true,
+      canViewStats: true,
+      canViewTpe: true,
+      canViewDecaisse: false,
+      canVisaDecaisse: false,
+      canManageUsers: false,
+      canAccessSystem: false
+    };
+  }
+  return {
+    canSell: true,
+    canViewCatalog: true,
+    canEditCatalog: false,
+    canRestock: false,
+    canViewStats: false,
+    canViewTpe: false,
+    canViewDecaisse: false,
+    canVisaDecaisse: false,
+    canManageUsers: false,
+    canAccessSystem: false
+  };
+}
+
+export function resolveVolunteerPermissions(
+  volunteer?: Partial<Pick<Volunteer, 'id' | 'username' | 'role' | 'isAdmin' | 'permissions'>> | null
+): UserPermissions {
+  if (!volunteer) {
+    return {
+      canSell: false,
+      canViewCatalog: false,
+      canEditCatalog: false,
+      canRestock: false,
+      canViewStats: false,
+      canViewTpe: false,
+      canViewDecaisse: false,
+      canVisaDecaisse: false,
+      canManageUsers: false,
+      canAccessSystem: false
+    };
+  }
+  const base = getDefaultPermissionsForRole(volunteer.role || '', volunteer.isAdmin);
+  const resolved: UserPermissions = {
+    ...base,
+    ...(volunteer.permissions || {})
+  };
+  if (resolved.canVisaDecaisse) {
+    resolved.canViewDecaisse = true;
+  }
+  if (resolved.canEditCatalog) {
+    resolved.canViewCatalog = true;
+  }
+  if (volunteer.id === 'vol-admin' || volunteer.username === 'admin') {
+    resolved.canManageUsers = true;
+    resolved.canAccessSystem = true;
+  }
+  return resolved;
+}
+
 export interface Volunteer {
   id: string;
   username: string; // ex: 'admin', 'jeremy'
@@ -65,6 +225,8 @@ export interface Volunteer {
   createdAt?: string;
   pinCode?: string;
   publicKey?: string; // Clé publique pour vérification des signatures de messages
+  permissions?: Partial<UserPermissions>;
+  perkPolicy?: VolunteerPerkPolicy;
 }
 
 export interface ChatMessage {
@@ -99,12 +261,29 @@ export interface ChatSettings {
   retentionDays: number; // 0 = illimité, 30 = 30 jours, 70 = 70 jours, etc.
 }
 
-export type DatabaseEngine = 'sqlite';
+export type DatabaseEngine = 'sqlite' | 'mysql';
+
+export interface ExternalDatabaseConfig {
+  url?: string;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  dialect?: 'mysql' | 'mariadb';
+  ssl?: boolean;
+  acceptInvalidCerts?: boolean;
+  syncIntervalSec?: number;
+}
 
 export interface DatabaseConnectionConfig {
   engine: DatabaseEngine;
-  status?: 'connected' | 'error';
+  external?: ExternalDatabaseConfig;
+  status?: 'connected' | 'offline_cache' | 'error';
   lastPing?: string;
+  lastError?: string;
+  serverVersion?: string;
+  pendingOpsCount?: number;
   format?: string;
 }
 
@@ -171,6 +350,7 @@ export interface VolunteerPerk {
   sellingPrice: number;
   date: string; // YYYY-MM-DD
   timestamp: string;
+  sessionId?: string;
 }
 
 export interface ProductStockHistoryPoint {

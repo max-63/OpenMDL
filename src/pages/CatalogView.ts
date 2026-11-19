@@ -36,7 +36,7 @@ export class CatalogView {
       p.category.toLowerCase().includes(this.catalogSearchQuery.toLowerCase())
     );
 
-    const isAdmin = db.getCurrentVolunteer()?.isAdmin === true;
+    const isAdmin = db.hasPermission('canEditCatalog');
 
     // 1. En-tête principal de l'îlot
     const header = document.createElement('div');
@@ -157,75 +157,83 @@ export class CatalogView {
           else if (p.category === 'chaud') catBadge = 'bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800/40';
 
           return `
-            <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 hover:border-orange-500/50 hover:bg-slate-50 dark:hover:bg-slate-800/80 shadow-xs transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 hover:border-orange-500/50 hover:bg-slate-50 dark:hover:bg-slate-800/80 shadow-xs transition-all grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_440px_112px] lg:grid-cols-[minmax(0,1fr)_540px_120px] xl:grid-cols-[minmax(0,1fr)_600px_124px] items-center gap-4">
               
               <!-- Identité de l'article -->
-              <div class="flex items-center gap-3.5 min-w-[240px]">
+              <div class="flex items-center gap-3.5 min-w-0">
                 <div class="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800 overflow-hidden flex-shrink-0 shadow-xs border border-slate-200/70 dark:border-slate-700/70">
                   <img src="${escapeHtml(p.imageUrl)}" alt="${escapeHtml(p.name)}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
                 </div>
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 min-w-0">
                     <h3 class="font-extrabold text-sm text-slate-900 dark:text-white truncate">${escapeHtml(p.name)}</h3>
-                    <span class="text-[9px] font-bold px-2 py-0.5 rounded-full border ${catBadge} uppercase tracking-wider">
+                    <span class="text-[9px] font-bold px-2 py-0.5 rounded-full border ${catBadge} uppercase tracking-wider flex-shrink-0">
                       ${escapeHtml(p.category)}
                     </span>
                   </div>
                   <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
-                    <span>Alerte stock : ${p.minStockAlert} u</span>
+                    <span class="whitespace-nowrap">Alerte stock : ${p.minStockAlert} u</span>
                     <span>•</span>
-                    <span class="font-mono-nums">Réf: ${escapeHtml(p.id)}</span>
+                    <span class="font-mono-nums truncate">Réf: ${escapeHtml(p.id)}</span>
                   </div>
                 </div>
               </div>
 
               <!-- Colonnes de données financières & stock -->
-              <div class="grid grid-cols-4 gap-4 sm:gap-6 flex-1 max-w-xl font-mono-nums">
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 font-mono-nums items-center">
                 
-                <div>
-                  <span class="text-[10px] font-sans font-bold uppercase text-slate-400 block mb-0.5">Prix Vente</span>
-                  <span class="font-black text-sm text-slate-900 dark:text-white">${p.price.toFixed(2)} €</span>
-                </div>
-
-                <div>
-                  <span class="text-[10px] font-sans font-bold uppercase text-slate-400 block mb-0.5">Coût Achat</span>
-                  <span class="font-medium text-xs text-slate-500 dark:text-slate-400">${p.costPrice.toFixed(2)} €</span>
-                </div>
-
-                <div>
-                  <span class="text-[10px] font-sans font-bold uppercase text-slate-400 block mb-0.5">Marge Nette</span>
-                  <div class="font-bold text-xs text-emerald-600 dark:text-emerald-400">
-                    +${margin.toFixed(2)} € <span class="text-[10px] opacity-75">(${marginPct}%)</span>
+                <div class="flex flex-col justify-center min-w-0">
+                  <span class="text-[10px] font-sans font-bold uppercase text-slate-400 block mb-1 whitespace-nowrap">Prix Vente</span>
+                  <div class="h-6 flex items-center whitespace-nowrap tabular-nums">
+                    <span class="font-black text-sm text-slate-900 dark:text-white">${p.price.toFixed(2)} €</span>
                   </div>
                 </div>
 
-                <div>
-                  <span class="text-[10px] font-sans font-bold uppercase text-slate-400 block mb-0.5">Stock Actuel</span>
-                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black ${
-                    isOutOfStock
-                      ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'
-                      : isLowStock
-                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
-                        : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                  }">
-                    ${p.stock} u
-                  </span>
+                <div class="flex flex-col justify-center min-w-0">
+                  <span class="text-[10px] font-sans font-bold uppercase text-slate-400 block mb-1 whitespace-nowrap">Coût Achat</span>
+                  <div class="h-6 flex items-center whitespace-nowrap tabular-nums">
+                    <span class="font-medium text-xs text-slate-500 dark:text-slate-400">${p.costPrice.toFixed(2)} €</span>
+                  </div>
+                </div>
+
+                <div class="flex flex-col justify-center min-w-0">
+                  <span class="text-[10px] font-sans font-bold uppercase text-slate-400 block mb-1 whitespace-nowrap">Marge Nette</span>
+                  <div class="h-6 flex items-center whitespace-nowrap tabular-nums">
+                    <div class="font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                      +${margin.toFixed(2)} € <span class="text-[10px] opacity-75">(${marginPct}%)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex flex-col justify-center min-w-0">
+                  <span class="text-[10px] font-sans font-bold uppercase text-slate-400 block mb-1 whitespace-nowrap">Stock Actuel</span>
+                  <div class="h-6 flex items-center whitespace-nowrap tabular-nums">
+                    <span class="inline-flex items-center justify-center min-w-[58px] px-2.5 py-0.5 rounded-full text-xs font-black ${
+                      isOutOfStock
+                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'
+                        : isLowStock
+                          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                          : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                    }">
+                      ${p.stock} u
+                    </span>
+                  </div>
                 </div>
 
               </div>
 
               <!-- Bouton Modifier arrondi (Admin uniquement) -->
-              <div class="flex-shrink-0 flex items-center justify-end">
+              <div class="flex items-center md:justify-end">
                 ${isAdmin ? `
                   <button 
                     data-edit-id="${p.id}" 
-                    class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-orange-500 hover:bg-orange-500 hover:text-white text-slate-700 dark:text-slate-200 font-sans font-bold text-xs transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+                    class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-orange-500 hover:bg-orange-500 hover:text-white text-slate-700 dark:text-slate-200 font-sans font-bold text-xs transition-all shadow-xs flex items-center gap-1.5 active:scale-95 cursor-pointer whitespace-nowrap"
                   >
                     ${Icons.edit('w-3.5 h-3.5')}
                     <span>Modifier</span>
                   </button>
                 ` : `
-                  <span class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 text-xs font-semibold border border-slate-200/60 dark:border-slate-800 flex items-center gap-1.5">
+                  <span class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 text-xs font-semibold border border-slate-200/60 dark:border-slate-800 flex items-center gap-1.5 whitespace-nowrap">
                     ${Icons.lock('w-3.5 h-3.5')}
                     <span>Tarif fixe</span>
                   </span>
@@ -270,7 +278,7 @@ export class CatalogView {
   }
 
   private showProductModal(product: Product | null, container: HTMLElement): void {
-    if (!db.getCurrentVolunteer()?.isAdmin) return;
+    if (!db.hasPermission('canEditCatalog')) return;
     const isEdit = !!product;
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-enter';

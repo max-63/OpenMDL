@@ -32,8 +32,7 @@ export class TpeView {
   private renderContent(container: HTMLElement): void {
     container.innerHTML = '';
 
-    const currentVolunteer = db.getCurrentVolunteer();
-    const isAdmin = currentVolunteer?.isAdmin ?? false;
+    const isAdmin = db.hasPermission('canViewTpe');
 
     // Si l'utilisateur n'est pas délégué / admin, fermer l'assistant de configuration
     if (!isAdmin) {
@@ -572,8 +571,7 @@ export class TpeView {
   }
 
   private attachEventListeners(container: HTMLElement): void {
-    const currentVolunteer = db.getCurrentVolunteer();
-    const isAdmin = currentVolunteer?.isAdmin ?? false;
+    const isAdmin = db.hasPermission('canViewTpe');
 
     // Déconnexion TPE (Réservé Délégué CVL / Admin)
     container.querySelector('#btn-disconnect-tpe')?.addEventListener('click', () => {

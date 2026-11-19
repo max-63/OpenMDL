@@ -1,4 +1,16 @@
-import type { Volunteer, VolunteerThemeSettings, PacmanScore, SnakeScore } from '../../types';
+import type {
+  Volunteer,
+  VolunteerThemeSettings,
+  PacmanScore,
+  SnakeScore,
+  UserPermissions,
+  VolunteerPerkPolicy
+} from '../../types';
+import {
+  DEFAULT_VOLUNTEER_PERK_POLICY,
+  getDefaultPermissionsForRole,
+  resolveVolunteerPermissions
+} from '../../types/index.ts';
 import { STORAGE_KEYS } from './constants.ts';
 
 export class VolunteerService {
@@ -84,6 +96,8 @@ export class VolunteerService {
       password: string;
       role?: string;
       isAdmin?: boolean;
+      permissions?: Partial<UserPermissions>;
+      perkPolicy?: VolunteerPerkPolicy;
     }
   ): { success: boolean; message: string; volunteer?: Volunteer } {
     const cleanUsername = userData.username.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
@@ -108,16 +122,34 @@ export class VolunteerService {
     const colors = ['#ea580c', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#6366f1'];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
+    const resolvedRole = userData.role?.trim() || (userData.isAdmin ? 'Administrateur' : 'Bénévole Permanence');
+    const basePerms = getDefaultPermissionsForRole(resolvedRole, !!userData.isAdmin);
+    const resolvedPermissions = resolveVolunteerPermissions({
+      role: resolvedRole,
+      isAdmin: !!userData.isAdmin,
+      permissions: userData.permissions ? { ...basePerms, ...userData.permissions } : basePerms
+    });
+    const normalizedPerkPolicy: VolunteerPerkPolicy = userData.perkPolicy
+      ? {
+          mode: userData.perkPolicy.mode || 'inherit',
+          quantity: Math.max(1, Math.min(20, Math.round(userData.perkPolicy.quantity || 1))),
+          everyNSessions: Math.max(1, Math.min(20, Math.round(userData.perkPolicy.everyNSessions || 1))),
+          ignoreThreshold: !!userData.perkPolicy.ignoreThreshold
+        }
+      : { ...DEFAULT_VOLUNTEER_PERK_POLICY };
+
     const newVolunteer: Volunteer = {
-      id: 'vol-' + Date.now(),
+      id: 'vol-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
       username: cleanUsername,
       password: cleanPassword,
       name: cleanName,
-      role: userData.role?.trim() || (userData.isAdmin ? 'Administrateur' : 'Bénévole Permanence'),
+      role: resolvedRole,
       avatarColor: randomColor,
       isAdmin: !!userData.isAdmin,
       isSuspended: false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      permissions: resolvedPermissions,
+      perkPolicy: normalizedPerkPolicy
     };
 
     volunteers.push(newVolunteer);
@@ -216,6 +248,82 @@ export class VolunteerService {
     });
 
     return { success: true, message: `Nom mis à jour en "${cleanName}"`, user, oldName };
+  }
+
+  public updateUserPermissionsAndPerk(
+    volunteers: Volunteer[],
+    currentVolunteerId: string | undefined,
+    volunteerId: string,
+    updates: {
+      role?: string;
+      isAdmin?: boolean;
+      permissions?: Partial<UserPermissions>;
+      perkPolicy?: VolunteerPerkPolicy;
+    }
+  ): { success: boolean; message: string; user?: Volunteer } {
+    const user = volunteers.find(v => v.id === volunteerId);
+    if (!user) return { success: false, message: 'Utilisateur introuvable' };
+
+    const nextRole = updates.role !== undefined && updates.role.trim() ? updates.role.trim() : user.role;
+    const nextIsAdmin = updates.isAdmin !== undefined ? !!updates.isAdmin : user.isAdmin;
+    const isRootAdmin = user.id === 'vol-admin' || user.username === 'admin';
+
+    if (isRootAdmin && !nextIsAdmin) {
+      return {
+        success: false,
+        message: 'Action impossible : le compte administrateur principal (@admin) doit rester administrateur.'
+      };
+    }
+
+    if (user.isAdmin && !nextIsAdmin) {
+      const otherActiveAdmins = volunteers.filter(v => v.isAdmin && !v.isSuspended && v.id !== user.id);
+      if (otherActiveAdmins.length === 0) {
+        return {
+          success: false,
+          message: 'Action impossible : il doit rester au moins un administrateur actif.'
+        };
+      }
+    }
+
+    const baseForTarget = updates.permissions
+      ? updates.permissions
+      : updates.isAdmin !== undefined || updates.role !== undefined
+        ? getDefaultPermissionsForRole(nextRole, nextIsAdmin)
+        : user.permissions;
+
+    const nextPermissions = resolveVolunteerPermissions({
+      id: user.id,
+      username: user.username,
+      role: nextRole,
+      isAdmin: nextIsAdmin,
+      permissions: baseForTarget
+    });
+
+    if (user.id === currentVolunteerId && !nextPermissions.canManageUsers) {
+      return {
+        success: false,
+        message: 'Action impossible : vous ne pouvez pas retirer l’accès aux Paramètres sur votre propre compte connecté.'
+      };
+    }
+
+    user.role = nextRole;
+    user.isAdmin = nextIsAdmin;
+    user.permissions = nextPermissions;
+
+    if (updates.perkPolicy) {
+      user.perkPolicy = {
+        mode: updates.perkPolicy.mode || 'inherit',
+        quantity: Math.max(1, Math.min(20, Math.round(updates.perkPolicy.quantity || 1))),
+        everyNSessions: Math.max(1, Math.min(20, Math.round(updates.perkPolicy.everyNSessions || 1))),
+        ignoreThreshold: !!updates.perkPolicy.ignoreThreshold
+      };
+    }
+
+    return {
+      success: true,
+      message: `Permissions et politique conso mises à jour pour ${user.name}`,
+      user
+    };
   }
 }
 

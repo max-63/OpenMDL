@@ -1,6 +1,5 @@
 import { Volunteer, Session } from '../types';
 import { db } from '../services/db';
-import { addonManager } from '../services/addonManager';
 import { syncService } from '../services/syncService';
 import { Icons } from './Icons';
 import { CloseSessionModalComponent } from './CloseSessionModal';
@@ -26,6 +25,23 @@ export class HeaderComponent {
     const syncConfig = syncService.getConfig();
     const appProfile = db.getAppProfile();
     const isVisco = appProfile === 'visco';
+    const perms = db.getEffectivePermissions(volunteer);
+
+    const stockTabs = ([
+      perms.canViewCatalog ? 'catalog' : null,
+      perms.canRestock ? 'restock' : null,
+      perms.canViewStats ? 'stats' : null
+    ].filter(Boolean)) as string[];
+
+    const configTabs = ([
+      perms.canViewTpe ? 'tpe' : null,
+      perms.canManageUsers ? 'settings' : null,
+      perms.canAccessSystem ? 'system' : null
+    ].filter(Boolean)) as string[];
+
+    const defaultBrandTab = isVisco
+      ? (perms.canViewDecaisse ? 'decaisse' : perms.canViewStats ? 'stats' : 'agenda')
+      : (perms.canSell ? 'dashboard' : perms.canViewCatalog ? 'catalog' : 'agenda');
 
     header.innerHTML = `
       <div class="flex items-center justify-between h-14">
@@ -46,13 +62,15 @@ export class HeaderComponent {
             <nav class="hidden md:flex items-center gap-1">
               ${isVisco ? `
                 <!-- Navigation Mode Vie Scolaire (Sans Caisse de vente) -->
-                <button data-tab="decaisse" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'decaisse'
-                  ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                }">
-                  ${Icons.vault('w-3.5 h-3.5')}
-                  <span>Décaisse & Coffre</span>
-                </button>
+                ${perms.canViewDecaisse ? `
+                  <button data-tab="decaisse" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'decaisse'
+                    ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }">
+                    ${Icons.vault('w-3.5 h-3.5')}
+                    <span>Décaisse & Coffre</span>
+                  </button>
+                ` : ''}
 
                 <button data-tab="agenda" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'agenda'
                   ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
@@ -62,87 +80,138 @@ export class HeaderComponent {
                   <span>Planning Foyer</span>
                 </button>
 
-                <button data-tab="stats" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'stats'
-                  ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                }">
-                  ${Icons.barChart('w-3.5 h-3.5')}
-                  <span>Rapports & Ventes</span>
-                </button>
-
-                <button data-tab="settings" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'settings'
-                  ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                }">
-                  ${Icons.settings('w-3.5 h-3.5')}
-                  <span>Paramètres</span>
-                </button>
-              ` : `
-                <!-- 1. Mode Compact / Standard : Onglets regroupés avec Menu Déroulant au Survol (Hover) -->
-                <div class="flex ${addonManager.getRegisteredTabs().length === 0 ? '3xl:hidden' : ''} items-center gap-1">
-                  <button data-tab="dashboard" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'dashboard'
-                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                ${perms.canViewStats ? `
+                  <button data-tab="stats" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'stats'
+                    ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
                     : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
                   }">
-                    Caisse
+                    ${Icons.barChart('w-3.5 h-3.5')}
+                    <span>Rapports & Ventes</span>
                   </button>
+                ` : ''}
 
-                  <!-- Groupe 1 : Stock & Ventes (Catalogue, Restock, Rapports) -->
-                  <div class="relative group/stock">
-                    <button 
-                      type="button"
-                      data-tab="${['catalog', 'restock', 'stats'].includes(this.currentTab) ? this.currentTab : 'catalog'}"
-                      class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer ${['catalog', 'restock', 'stats'].includes(this.currentTab)
+                ${perms.canManageUsers ? `
+                  <button data-tab="settings" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'settings'
+                    ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }">
+                    ${Icons.settings('w-3.5 h-3.5')}
+                    <span>Paramètres</span>
+                  </button>
+                ` : ''}
+
+                ${perms.canAccessSystem ? `
+                  <button data-tab="system" class="px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'system'
+                    ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }">
+                    ${Icons.server('w-3.5 h-3.5')}
+                    <span>Système</span>
+                  </button>
+                ` : ''}
+              ` : `
+                <!-- 1. Mode Compact / Standard : Onglets filtrés par permissions -->
+                <div class="flex 3xl:hidden items-center gap-1">
+                  ${perms.canSell ? `
+                    <button data-tab="dashboard" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'dashboard'
+                      ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }">
+                      Caisse
+                    </button>
+                  ` : ''}
+
+                  <!-- Groupe 1 : Stock & Ventes -->
+                  ${stockTabs.length === 1 ? `
+                    ${stockTabs[0] === 'catalog' ? `
+                      <button data-tab="catalog" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'catalog'
                         ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
                         : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }"
-                    >
-                      ${Icons.package('w-3.5 h-3.5')}
-                      <span>${
-                        this.currentTab === 'stats' ? 'Rapports' :
-                        this.currentTab === 'restock' ? 'Restock' :
-                        this.currentTab === 'catalog' ? 'Catalogue' : 'Stock & Ventes'
-                      }</span>
-                      ${Icons.chevronDown('w-3 h-3 opacity-60 group-hover/stock:rotate-180 transition-transform duration-200')}
-                    </button>
+                      }">
+                        ${Icons.cart('w-3.5 h-3.5')}
+                        <span>Catalogue</span>
+                      </button>
+                    ` : stockTabs[0] === 'restock' ? `
+                      <button data-tab="restock" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'restock'
+                        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }">
+                        ${Icons.refresh('w-3.5 h-3.5')}
+                        <span>Restock</span>
+                      </button>
+                    ` : `
+                      <button data-tab="stats" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'stats'
+                        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }">
+                        ${Icons.barChart('w-3.5 h-3.5')}
+                        <span>Rapports</span>
+                      </button>
+                    `}
+                  ` : stockTabs.length > 1 ? `
+                    <div class="relative group/stock">
+                      <button 
+                        type="button"
+                        data-tab="${stockTabs.includes(this.currentTab) ? this.currentTab : stockTabs[0]}"
+                        class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer ${stockTabs.includes(this.currentTab)
+                          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }"
+                      >
+                        ${Icons.package('w-3.5 h-3.5')}
+                        <span>${
+                          this.currentTab === 'stats' ? 'Rapports' :
+                          this.currentTab === 'restock' ? 'Restock' :
+                          this.currentTab === 'catalog' ? 'Catalogue' : 'Stock & Ventes'
+                        }</span>
+                        ${Icons.chevronDown('w-3 h-3 opacity-60 group-hover/stock:rotate-180 transition-transform duration-200')}
+                      </button>
 
-                    <!-- Menu déroulant au Hover -->
-                    <div class="absolute top-full left-0 pt-1.5 opacity-0 invisible group-hover/stock:opacity-100 group-hover/stock:visible transition-all duration-150 z-50 min-w-48 pointer-events-none group-hover/stock:pointer-events-auto">
-                      <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-1.5 space-y-0.5 backdrop-blur-md">
-                        <button data-tab="catalog" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'catalog'
-                          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
-                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }">
-                          ${Icons.cart('w-3.5 h-3.5 text-orange-500')}
-                          <span>Catalogue & Tarifs</span>
-                        </button>
+                      <div class="absolute top-full left-0 pt-1.5 opacity-0 invisible group-hover/stock:opacity-100 group-hover/stock:visible transition-all duration-150 z-50 min-w-48 pointer-events-none group-hover/stock:pointer-events-auto">
+                        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-1.5 space-y-0.5 backdrop-blur-md">
+                          ${perms.canViewCatalog ? `
+                            <button data-tab="catalog" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'catalog'
+                              ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
+                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }">
+                              ${Icons.cart('w-3.5 h-3.5 text-orange-500')}
+                              <span>Catalogue & Tarifs</span>
+                            </button>
+                          ` : ''}
 
-                        <button data-tab="restock" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'restock'
-                          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
-                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }">
-                          ${Icons.refresh('w-3.5 h-3.5 text-emerald-500')}
-                          <span>Restock Express</span>
-                        </button>
+                          ${perms.canRestock ? `
+                            <button data-tab="restock" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'restock'
+                              ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
+                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }">
+                              ${Icons.refresh('w-3.5 h-3.5 text-emerald-500')}
+                              <span>Restock Express</span>
+                            </button>
+                          ` : ''}
 
-                        <button data-tab="stats" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'stats'
-                          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
-                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }">
-                          ${Icons.barChart('w-3.5 h-3.5 text-sky-500')}
-                          <span>Rapports & Ventes</span>
-                        </button>
+                          ${perms.canViewStats ? `
+                            <button data-tab="stats" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'stats'
+                              ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
+                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }">
+                              ${Icons.barChart('w-3.5 h-3.5 text-sky-500')}
+                              <span>Rapports & Ventes</span>
+                            </button>
+                          ` : ''}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ` : ''}
 
-                  <button data-tab="decaisse" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'decaisse'
-                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }">
-                    ${Icons.vault('w-3.5 h-3.5')}
-                    <span>Décaisse</span>
-                  </button>
+                  ${perms.canViewDecaisse ? `
+                    <button data-tab="decaisse" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'decaisse'
+                      ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }">
+                      ${Icons.vault('w-3.5 h-3.5')}
+                      <span>Décaisse</span>
+                    </button>
+                  ` : ''}
 
                   <button data-tab="agenda" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'agenda'
                     ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
@@ -152,93 +221,120 @@ export class HeaderComponent {
                     <span>Planning</span>
                   </button>
 
-                  <!-- Groupe 2 : Gestion & Config (TPE, Addons, Paramètres) -->
-                  <div class="relative group/config">
-                    <button 
-                      type="button"
-                      data-tab="${['tpe', 'addons', 'settings'].includes(this.currentTab) ? this.currentTab : (volunteer?.isAdmin ? 'settings' : 'tpe')}"
-                      class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer ${['tpe', 'addons', 'settings'].includes(this.currentTab)
+                  <!-- Groupe 2 : Gestion & Config -->
+                  ${configTabs.length === 1 ? `
+                    ${configTabs[0] === 'tpe' ? `
+                      <button data-tab="tpe" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'tpe'
                         ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
                         : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }"
-                    >
-                      ${Icons.settings('w-3.5 h-3.5')}
-                      <span>${
-                        this.currentTab === 'tpe' ? 'Gestion TPE' :
-                        this.currentTab === 'addons' ? 'Addons' :
-                        this.currentTab === 'settings' ? 'Paramètres' : 'Gestion & Config'
-                      }</span>
-                      ${Icons.chevronDown('w-3 h-3 opacity-60 group-hover/config:rotate-180 transition-transform duration-200')}
-                    </button>
+                      }">
+                        ${Icons.creditCard('w-3.5 h-3.5')}
+                        <span>Gestion TPE</span>
+                      </button>
+                    ` : configTabs[0] === 'settings' ? `
+                      <button data-tab="settings" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'settings'
+                        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }">
+                        ${Icons.settings('w-3.5 h-3.5')}
+                        <span>Paramètres</span>
+                      </button>
+                    ` : `
+                      <button data-tab="system" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'system'
+                        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }">
+                        ${Icons.server('w-3.5 h-3.5')}
+                        <span>Système</span>
+                      </button>
+                    `}
+                  ` : configTabs.length > 1 ? `
+                    <div class="relative group/config">
+                      <button 
+                        type="button"
+                        data-tab="${configTabs.includes(this.currentTab) ? this.currentTab : configTabs[0]}"
+                        class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer ${configTabs.includes(this.currentTab)
+                          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }"
+                      >
+                        ${Icons.settings('w-3.5 h-3.5')}
+                        <span>${
+                          this.currentTab === 'tpe' ? 'Gestion TPE' :
+                          this.currentTab === 'settings' ? 'Paramètres' :
+                          this.currentTab === 'system' ? 'Système' : 'Gestion & Config'
+                        }</span>
+                        ${Icons.chevronDown('w-3 h-3 opacity-60 group-hover/config:rotate-180 transition-transform duration-200')}
+                      </button>
 
-                    <!-- Menu déroulant au Hover -->
-                    <div class="absolute top-full left-0 pt-1.5 opacity-0 invisible group-hover/config:opacity-100 group-hover/config:visible transition-all duration-150 z-50 min-w-44 pointer-events-none group-hover/config:pointer-events-auto">
-                      <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-1.5 space-y-0.5 backdrop-blur-md">
-                        <button data-tab="tpe" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'tpe'
-                          ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
-                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }">
-                          ${Icons.creditCard('w-3.5 h-3.5 text-blue-500')}
-                          <span>Gestion TPE</span>
-                        </button>
+                      <div class="absolute top-full left-0 pt-1.5 opacity-0 invisible group-hover/config:opacity-100 group-hover/config:visible transition-all duration-150 z-50 min-w-44 pointer-events-none group-hover/config:pointer-events-auto">
+                        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-1.5 space-y-0.5 backdrop-blur-md">
+                          ${perms.canViewTpe ? `
+                            <button data-tab="tpe" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'tpe'
+                              ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
+                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }">
+                              ${Icons.creditCard('w-3.5 h-3.5 text-blue-500')}
+                              <span>Gestion TPE</span>
+                            </button>
+                          ` : ''}
 
-                        ${volunteer?.isAdmin ? `
-                          <button data-tab="addons" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'addons'
-                            ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
-                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                          }">
-                            ${Icons.puzzle('w-3.5 h-3.5 text-purple-500')}
-                            <span>Addons</span>
-                          </button>
+                          ${perms.canManageUsers ? `
+                            <button data-tab="settings" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'settings'
+                              ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
+                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }">
+                              ${Icons.settings('w-3.5 h-3.5 text-orange-500')}
+                              <span>Paramètres</span>
+                            </button>
+                          ` : ''}
 
-                          <button data-tab="settings" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'settings'
-                            ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
-                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                          }">
-                            ${Icons.settings('w-3.5 h-3.5 text-orange-500')}
-                            <span>Paramètres</span>
-                          </button>
-                        ` : ''}
+                          ${perms.canAccessSystem ? `
+                            <div class="my-1 border-t border-slate-100 dark:border-slate-800"></div>
+                            <button data-tab="system" class="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${this.currentTab === 'system'
+                              ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold'
+                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }">
+                              ${Icons.server('w-3.5 h-3.5 text-emerald-500')}
+                              <span>Système</span>
+                            </button>
+                          ` : ''}
+                        </div>
                       </div>
                     </div>
-                  </div>
-
-                  <!-- Onglets dynamiques créés par les Addons actifs -->
-                  ${addonManager.getRegisteredTabs().map(tab => `
-                    <button data-tab="${tab.id}" class="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === tab.id
-                      ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }">
-                      ${(Icons as any)[tab.icon] ? (Icons as any)[tab.icon]('w-3.5 h-3.5') : Icons.puzzle('w-3.5 h-3.5')}
-                      <span>${tab.label}</span>
-                    </button>
-                  `).join('')}
+                  ` : ''}
                 </div>
 
-                <!-- 2. Mode Très Grand Écran (3xl+) SANS addon actif : Tous les onglets dépliés individuellement si la place le permet -->
-                ${addonManager.getRegisteredTabs().length === 0 ? `
-                  <div class="hidden 3xl:flex items-center gap-1.5">
+                <!-- 2. Mode Très Grand Écran (3xl+) -->
+                <div class="hidden 3xl:flex items-center gap-1.5">
+                  ${perms.canSell ? `
                     <button data-tab="dashboard" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'dashboard'
                       ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
                     }">
                       Caisse
                     </button>
+                  ` : ''}
 
+                  ${perms.canViewCatalog ? `
                     <button data-tab="catalog" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'catalog'
                       ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
                     }">
                       Catalogue & Tarifs
                     </button>
+                  ` : ''}
 
+                  ${perms.canRestock ? `
                     <button data-tab="restock" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'restock'
                       ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
                     }">
                       Restock Express
                     </button>
+                  ` : ''}
 
+                  ${perms.canViewDecaisse ? `
                     <button data-tab="decaisse" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'decaisse'
                       ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -246,22 +342,26 @@ export class HeaderComponent {
                       ${Icons.vault('w-3.5 h-3.5')}
                       <span>Décaisse</span>
                     </button>
+                  ` : ''}
 
+                  ${perms.canViewStats ? `
                     <button data-tab="stats" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all ${this.currentTab === 'stats'
                       ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
                     }">
                       Rapports & Ventes
                     </button>
+                  ` : ''}
 
-                    <button data-tab="agenda" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'agenda'
-                      ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }">
-                      ${Icons.calendar('w-3.5 h-3.5')}
-                      <span>Planning Foyer</span>
-                    </button>
+                  <button data-tab="agenda" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'agenda'
+                    ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }">
+                    ${Icons.calendar('w-3.5 h-3.5')}
+                    <span>Planning Foyer</span>
+                  </button>
 
+                  ${perms.canViewTpe ? `
                     <button data-tab="tpe" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'tpe'
                       ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -269,26 +369,28 @@ export class HeaderComponent {
                       ${Icons.creditCard('w-3.5 h-3.5')}
                       <span>Gestion TPE</span>
                     </button>
+                  ` : ''}
 
-                    ${volunteer?.isAdmin ? `
-                      <button data-tab="addons" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'addons'
-                        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }">
-                        ${Icons.puzzle('w-3.5 h-3.5')}
-                        <span>Addons</span>
-                      </button>
+                  ${perms.canManageUsers ? `
+                    <button data-tab="settings" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'settings'
+                      ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }">
+                      ${Icons.settings('w-3.5 h-3.5')}
+                      <span>Paramètres</span>
+                    </button>
+                  ` : ''}
 
-                      <button data-tab="settings" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'settings'
-                        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }">
-                        ${Icons.settings('w-3.5 h-3.5')}
-                        <span>Paramètres</span>
-                      </button>
-                    ` : ''}
-                  </div>
-                ` : ''}
+                  ${perms.canAccessSystem ? `
+                    <button data-tab="system" class="px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${this.currentTab === 'system'
+                      ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold border border-orange-500/20 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }">
+                      ${Icons.server('w-3.5 h-3.5')}
+                      <span>Système</span>
+                    </button>
+                  ` : ''}
+                </div>
               `}
             </nav>
           </div>
@@ -299,10 +401,17 @@ export class HeaderComponent {
             <!-- Badge Statut Réseau / Synchronisation -->
             ${syncConfig.mode === 'lan' ? `
               ${syncConfig.lan.role === 'server' ? `
-                <button data-tab="settings" class="hidden xl:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold cursor-pointer transition-colors" title="Serveur LAN actif - Cliquer pour ouvrir les réglages">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>Serveur</span>
-                </button>
+                ${perms.canAccessSystem ? `
+                  <button data-tab="system" class="hidden xl:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold cursor-pointer transition-colors" title="Serveur LAN actif - Cliquer pour ouvrir l'onglet Système">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Serveur</span>
+                  </button>
+                ` : `
+                  <div class="hidden xl:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold" title="Serveur LAN actif (Accès Système réservé administrateur)">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Serveur</span>
+                  </div>
+                `}
               ` : `
                 <button id="btn-header-sync-now" class="hidden xl:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 border border-sky-500/20 text-[10px] font-bold cursor-pointer transition-colors" title="Client LAN - Cliquer pour synchroniser avec la caisse">
                   <span class="w-1.5 h-1.5 rounded-full ${syncService.currentStatus === 'error' ? 'bg-rose-500' : 'bg-sky-500'}"></span>
@@ -311,10 +420,17 @@ export class HeaderComponent {
                 </button>
               `}
             ` : syncConfig.mode === 'usb' ? `
-              <button data-tab="settings" class="hidden xl:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[10px] font-bold cursor-pointer transition-colors" title="Mode Clé USB actif - Cliquer pour ouvrir les réglages">
-                ${Icons.folder('w-3 h-3')}
-                <span>Clé USB</span>
-              </button>
+              ${perms.canAccessSystem ? `
+                <button data-tab="system" class="hidden xl:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[10px] font-bold cursor-pointer transition-colors" title="Mode Clé USB actif - Cliquer pour ouvrir l'onglet Système">
+                  ${Icons.folder('w-3 h-3')}
+                  <span>Clé USB</span>
+                </button>
+              ` : `
+                <div class="hidden xl:flex items-center gap-1.5 px-2 py-1 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[10px] font-bold" title="Mode Clé USB actif (Accès Système réservé administrateur)">
+                  ${Icons.folder('w-3 h-3')}
+                  <span>Clé USB</span>
+                </div>
+              `}
             ` : ''}
             
             <!-- Soutien Ko-fi (si connecté à Internet) -->
@@ -411,7 +527,7 @@ export class HeaderComponent {
     });
 
     header.querySelector('#nav-brand')?.addEventListener('click', () => {
-      this.onTabChange(isVisco ? 'decaisse' : 'dashboard');
+      this.onTabChange(defaultBrandTab);
     });
 
     header.querySelector('#btn-toggle-theme')?.addEventListener('click', () => {

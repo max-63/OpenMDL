@@ -16,6 +16,20 @@ export class DecaisseView {
 
   public render(): HTMLElement {
     this.container.innerHTML = '';
+
+    if (!db.hasPermission('canViewDecaisse')) {
+      this.container.innerHTML = `
+        <div class="rounded-3xl bg-white dark:bg-slate-900 border border-rose-500/30 p-8 text-center space-y-2 max-w-lg mx-auto my-auto shadow-sm">
+          <div class="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+            ${Icons.vault('w-6 h-6')}
+          </div>
+          <h2 class="text-base font-black text-slate-900 dark:text-white">Accès refusé</h2>
+          <p class="text-xs text-slate-500">La consultation des décaissements est réservée aux Surveillants / Vie Scolaire et Administrateurs.</p>
+        </div>
+      `;
+      return this.container;
+    }
+
     const isOnline = syncService.isServerReachable;
     const localHash = db.getDatabaseHash();
     const lastSync = syncService.lastSyncTime
@@ -234,7 +248,7 @@ export class DecaisseView {
                   ${u.isAdmin ? `
                     <span class="px-2 py-0.5 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400 text-[10px] font-extrabold">ADMIN</span>
                   ` : `
-                    <span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold">Bénévole</span>
+                    <span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold">${escapeHtml(u.role)}</span>
                   `}
                 </div>
               </div>
@@ -251,6 +265,7 @@ export class DecaisseView {
 
   private renderWithdrawalRow(w: EnrichedCashWithdrawal): string {
     const isSigned = Boolean(w.visaBy);
+    const canVisa = db.hasPermission('canVisaDecaisse');
     const dateFormatted = new Date(w.sessionEndTime).toLocaleDateString('fr-FR', {
       day: '2-digit',
       month: '2-digit',
@@ -324,16 +339,20 @@ export class DecaisseView {
               ${Icons.download('w-4 h-4')}
             </button>
 
-            ${!isSigned ? `
+            ${!isSigned ? (canVisa ? `
               <button data-visa-btn="${w.sessionId}" class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5">
                 ${Icons.clipboardCheck('w-4 h-4')}
                 <span>Viser la remise</span>
               </button>
             ` : `
+              <span class="px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 text-[11px] font-bold">
+                Visa Surveillant / Admin requis
+              </span>
+            `) : (canVisa ? `
               <button data-visa-btn="${w.sessionId}" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold hover:bg-slate-200 transition-colors" title="Modifier le visa">
                 Modifier
               </button>
-            `}
+            ` : '')}
           </div>
         </div>
 
@@ -382,8 +401,10 @@ export class DecaisseView {
   }
 
   private openVisaModal(sessionId: string): void {
+    if (!db.hasPermission('canVisaDecaisse')) return;
     const withdrawal = db.getCashWithdrawals().find(w => w.sessionId === sessionId);
     if (!withdrawal) return;
+    const defaultAgentName = withdrawal.visaBy || db.getCurrentVolunteer()?.name || '';
 
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-enter';
@@ -425,7 +446,7 @@ export class DecaisseView {
             <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
               Nom & Prénom de l'agent Vie Scolaire / CPE <span class="text-rose-500">*</span>
             </label>
-            <input type="text" id="visa-agent-name" value="${escapeHtml(withdrawal.visaBy || '')}" placeholder="ex: M. Dupont (CPE)" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-sky-500" />
+            <input type="text" id="visa-agent-name" value="${escapeHtml(defaultAgentName)}" placeholder="ex: M. Dupont (CPE)" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-sky-500" />
           </div>
 
           <div>
